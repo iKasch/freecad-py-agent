@@ -23,9 +23,7 @@ except Exception:
     Gui = None
 
 
-DEFAULT_ROOT = Path(
-    "/Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent"
-)
+DEFAULT_ROOT = Path.cwd()
 POLL_INTERVAL_MS = 1000
 AGENT_DOCUMENT_COMMENT_PREFIX = "freecad_folder_watch_agent:"
 AGENT_SESSION_PREFIX = AGENT_DOCUMENT_COMMENT_PREFIX + "session="

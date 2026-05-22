@@ -17,20 +17,15 @@ folder-watch-py-agent/
 
 ## Einmal in FreeCAD starten
 
-Option A, bequem ueber FreeCADs Macro-Menue:
+Alle Terminal-Befehle in dieser README werden aus dem Repository-Ordner ausgefuehrt.
+
+Macro in FreeCAD registrieren:
 
 ```bash
-cd /Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent
 python3 install_macro_symlink.py
 ```
 
 Danach FreeCAD GUI oeffnen und `Macro > Macros... > freecad_folder_watch_agent.FCMacro > Execute` waehlen.
-
-Option B, ohne Installation, einmal in der FreeCAD Python Console ausfuehren:
-
-```text
-exec(open("/Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent/freecad_folder_watch_agent.FCMacro", encoding="utf-8").read())
-```
 
 Die Macro laeuft danach per `QTimer` weiter, solange FreeCAD offen ist. Ein erneutes Ausfuehren startet sie sauber neu.
 
@@ -42,10 +37,9 @@ Die operativen Agent-Anweisungen stehen in `AGENTS.md`. Ein Agent, der in diesem
 
 ## Job einreichen
 
-Aus einem Terminal:
+Aus dem Repository-Ordner:
 
 ```bash
-cd /Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent
 python3 agent_submit.py examples/perforated_plate.py --step
 ```
 
@@ -189,6 +183,8 @@ Wichtige Runs koennen vor Cleanup geschuetzt werden:
 python3 agent_data.py pin workshop-bracket history-test 000004-20260522-170000-good-version
 python3 agent_data.py unpin workshop-bracket history-test 000004-20260522-170000-good-version
 ```
+
+Lokale Modell-Scripts fuer konkrete Projekte gehoeren nicht ins Repository. Lege sie zum Beispiel unter `models/` ab; dieser Ordner ist absichtlich per `.gitignore` ausgeschlossen.
 
 ## Modell-Scripts
 

@@ -20,12 +20,6 @@ If the macro is not installed in FreeCAD yet, tell the user to run this from the
 python3 install_macro_symlink.py
 ```
 
-Alternatively, they can paste this into the FreeCAD Python console:
-
-```python
-exec(open("/absolute/path/to/folder-watch-py-agent/freecad_folder_watch_agent.FCMacro", encoding="utf-8").read())
-```
-
 After changes to `freecad_folder_watch_agent.FCMacro`, tell the user to run the macro again in FreeCAD.
 
 ## Working Model
@@ -36,6 +30,7 @@ Use these files:
 - `agent_data.py`: inspect and clean output data.
 - `freecad_folder_watch_agent.FCMacro`: the FreeCAD-side folder watcher.
 - `examples/`: reference model scripts.
+- `models/`: optional local model scripts for concrete projects; ignored by git.
 - `out/projects/<project>/sessions/<session>/current/`: current output for one project/session.
 - `out/projects/<project>/sessions/<session>/runs/`: historical runs for one project/session.
 
@@ -66,7 +61,7 @@ Only start this flow after the user has described the model/change to build, or 
 2. Submit it:
 
 ```bash
-python3 agent_submit.py /abs/path/to/model.py \
+python3 agent_submit.py models/model.py \
   --project <project> \
   --session <session> \
   --title <short-run-title> \
@@ -121,6 +116,8 @@ PARAMS   # dict from --param and --params-file
 ```
 
 Prefer explicit, stable object names. Keep scripts deterministic from their inputs. Use `PARAMS` for dimensions and configuration that should change across iterations.
+
+Concrete user project model scripts are local working files. Prefer storing them under `models/`, which is ignored by git, unless the user explicitly asks to turn an example into a tracked repository example.
 
 ## Data Management
 
