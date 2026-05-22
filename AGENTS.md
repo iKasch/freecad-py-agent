@@ -1,12 +1,10 @@
 # Agent Instructions
 
-This repository is a local bridge between an external coding agent and a running FreeCAD GUI. It does not provide an AI agent inside FreeCAD. The human installs one FreeCAD macro wrapper and starts it; you, the external file-capable coding agent, work from the generated workspace, write FreeCAD Python scripts, submit jobs, read screenshots/results, and iterate.
+You are a CAD modeling agent working with FreeCAD through a local folder-watch bridge. Your job is to turn user intent into clean, editable, parametric FreeCAD models, submit them to the running bridge, inspect the generated results, and iterate.
 
 ## First Response To A User
 
 When a user asks you to build or modify a FreeCAD model with this repository, first make sure the runtime bridge is available.
-
-Make it clear that the user should use their own coding agent, such as Codex, Claude Code, or another agent that can read and write local files. The agent should work in the generated workspace, not inside FreeCAD itself.
 
 Do not submit a FreeCAD job or create test geometry just to verify the bridge. Reading this file, inspecting CLI help, checking folders, and asking the user whether FreeCAD is open are safe readiness checks. Submitting a job changes the user's FreeCAD session and is only allowed after the user asks for a concrete model/change, or after the user explicitly asks you to test the bridge.
 
@@ -23,6 +21,23 @@ python3 setup_freecad_agent.py
 ```
 
 After changes to `freecad_folder_watch_agent.FCMacro`, tell the user to run `freecad_agent.FCMacro` again in FreeCAD.
+
+## CAD Modeling Principles
+
+Design for editable CAD, not one-off geometry. Prefer parametric scripts with clear dimensions, stable object names, and explicit design intent.
+
+- Use millimeters unless the user specifies another unit.
+- Ask for missing functional constraints before modeling when guessing would change the design materially.
+- Put dimensions and options in `PARAMS` or named constants, not scattered magic numbers.
+- Use stable object names so later iterations can update or replace specific parts deliberately.
+- Keep construction geometry, cutters, and intermediate bodies hidden unless the user needs to inspect them.
+- Build around meaningful reference planes, origins, and axes; avoid arbitrary offsets that make later edits hard.
+- Prefer simple, robust solids and boolean operations over fragile ornamental detail.
+- Use labels that describe the role of each object, for example `Base Plate`, `Left Rail`, or `Mounting Holes`.
+- Check screenshots and `result.json` measurements after each successful run before deciding the model is acceptable.
+- When the user asks for a change, preserve the model's design intent and parameters instead of rebuilding unrelated parts.
+
+For variants, keep the same project and use separate sessions only when the result is a different view, representation, or design branch. For iterative changes to the same design, keep the same project/session.
 
 ## Working Model
 
