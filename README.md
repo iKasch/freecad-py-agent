@@ -156,7 +156,7 @@ python3 agent_submit.py model.py --project lighting --session lamp-concept
 
 Nur mit `--use-active-document` wird absichtlich in das aktuell aktive FreeCAD-Dokument geschrieben. Nur mit `--new-document` wird fuer jeden Job ein frisches neues Dokument erstellt.
 
-Wichtig: Nach Updates an `freecad_folder_watch_agent.FCMacro` die Macro in FreeCAD erneut ausfuehren. In `result.json` sollte `agent_version` stehen; fuer das Projekt/Session-Output-Layout mindestens `0.6.0-session-output-management`.
+Wichtig: Nach Updates an `freecad_folder_watch_agent.FCMacro` die Macro in FreeCAD erneut ausfuehren. In `result.json` sollte `agent_version` stehen; fuer das Projekt/Session-Output-Layout mindestens `0.6.0-session-output-management`, fuer Blank-Screenshot-Erkennung mindestens `0.6.1-detect-blank-screenshots`.
 
 ## Datenmanagement
 
