@@ -121,7 +121,6 @@ Use `agent_data.py` for inspection:
 ```bash
 python3 agent_data.py list
 python3 agent_data.py stats
-python3 agent_data.py legacy
 ```
 
 Cleanup is destructive. Always run cleanup as a dry-run first. Only add `--apply` after the user confirms deletion.
@@ -131,7 +130,6 @@ Dry-run examples:
 ```bash
 python3 agent_data.py prune --project <project> --session <session> --keep-runs 20
 python3 agent_data.py compact --older-than 14d --keep-runs 10
-python3 agent_data.py prune-legacy --all
 ```
 
 Apply examples, only after user confirmation:
@@ -139,7 +137,6 @@ Apply examples, only after user confirmation:
 ```bash
 python3 agent_data.py prune --project <project> --session <session> --keep-runs 20 --apply
 python3 agent_data.py compact --older-than 14d --keep-runs 10 --apply
-python3 agent_data.py prune-legacy --older-than 14d --apply
 ```
 
 Pinned runs are protected from cleanup:
@@ -166,4 +163,4 @@ If screenshots are missing but the model exists, inspect `result.json` for scree
 
 This bridge executes local Python inside FreeCAD. Only run scripts from this repository or paths created for the user's current task. Do not submit untrusted downloaded scripts.
 
-Do not delete `out/`, `runs/`, legacy output folders, or generated exports unless the user explicitly confirms deletion after seeing a dry-run.
+Do not delete `out/`, `runs/`, or generated exports unless the user explicitly confirms deletion after seeing a dry-run.

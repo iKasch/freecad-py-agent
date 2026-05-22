@@ -167,7 +167,6 @@ Uebersicht:
 ```bash
 python3 agent_data.py list
 python3 agent_data.py stats
-python3 agent_data.py legacy
 ```
 
 Alte Runs aufraeumen. Ohne `--apply` ist das immer nur ein Dry-run:
@@ -182,13 +181,6 @@ Nur schwere Exportdateien aus alten Runs entfernen, aber JSON und Screenshots be
 ```bash
 python3 agent_data.py compact --older-than 14d --keep-runs 10
 python3 agent_data.py compact --older-than 14d --keep-runs 10 --apply
-```
-
-Alte flache Output-Ordner aus frueheren Versionen koennen separat geloescht werden:
-
-```bash
-python3 agent_data.py prune-legacy --all
-python3 agent_data.py prune-legacy --older-than 14d --apply
 ```
 
 Wichtige Runs koennen vor Cleanup geschuetzt werden:

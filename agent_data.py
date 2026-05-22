@@ -114,21 +114,6 @@ def run_dirs(session_dir):
     return sorted([path for path in runs.iterdir() if path.is_dir()], key=lambda p: p.name)
 
 
-def legacy_run_dirs(root):
-    out_dir = root / "out"
-    if not out_dir.exists():
-        return []
-    managed_names = {"projects", "errors"}
-    return sorted(
-        [
-            path
-            for path in out_dir.iterdir()
-            if path.is_dir() and path.name not in managed_names
-        ],
-        key=lambda p: p.name,
-    )
-
-
 def selected_run_dirs(root, args):
     for _, session_dir in iter_sessions(root, args.project, args.session):
         meta = read_json(session_dir / "session.json", {})
@@ -147,16 +132,6 @@ def selected_run_dirs(root, args):
             if cutoff is not None and run_dir.stat().st_mtime >= cutoff:
                 continue
             yield session_dir, run_dir
-
-
-def selected_legacy_dirs(root, args):
-    cutoff = time.time() - args.older_than if args.older_than else None
-    for run_dir in legacy_run_dirs(root):
-        if (run_dir / ".pinned").exists():
-            continue
-        if cutoff is not None and run_dir.stat().st_mtime >= cutoff:
-            continue
-        yield run_dir
 
 
 def cmd_list(args):
@@ -178,16 +153,6 @@ def cmd_list(args):
         )
     if not found:
         print("No managed project/session output found.")
-
-
-def cmd_legacy(args):
-    root = Path(args.root).expanduser().resolve()
-    runs = legacy_run_dirs(root)
-    if not runs:
-        print("No legacy output folders found.")
-        return
-    for run_dir in runs:
-        print("{}  size={}".format(run_dir, format_bytes(directory_size(run_dir))))
 
 
 def cmd_stats(args):
@@ -221,25 +186,6 @@ def cmd_prune(args):
 
     if not args.apply:
         print("Dry run only. Add --apply to delete these run folders.")
-
-
-def cmd_prune_legacy(args):
-    if not args.all and args.older_than is None:
-        raise SystemExit("Use --older-than or --all before pruning legacy folders.")
-
-    root = Path(args.root).expanduser().resolve()
-    candidates = list(selected_legacy_dirs(root, args))
-    if not candidates:
-        print("Nothing to prune.")
-        return
-
-    for run_dir in candidates:
-        print("{} {}".format("delete" if args.apply else "would delete", run_dir))
-        if args.apply:
-            shutil.rmtree(str(run_dir))
-
-    if not args.apply:
-        print("Dry run only. Add --apply to delete these legacy folders.")
 
 
 def cmd_compact(args):
@@ -329,9 +275,6 @@ def parse_args():
     add_selection_args(list_parser)
     list_parser.set_defaults(func=cmd_list)
 
-    legacy_parser = subparsers.add_parser("legacy", help="List old flat output folders")
-    legacy_parser.set_defaults(func=cmd_legacy)
-
     stats_parser = subparsers.add_parser("stats", help="Show disk usage")
     add_selection_args(stats_parser)
     stats_parser.set_defaults(func=cmd_stats)
@@ -339,22 +282,6 @@ def parse_args():
     prune_parser = subparsers.add_parser("prune", help="Delete old run folders")
     add_cleanup_args(prune_parser)
     prune_parser.set_defaults(func=cmd_prune)
-
-    prune_legacy_parser = subparsers.add_parser(
-        "prune-legacy", help="Delete old flat output folders"
-    )
-    prune_legacy_parser.add_argument(
-        "--older-than",
-        type=parse_duration,
-        help="Only select folders older than this duration, for example 14d.",
-    )
-    prune_legacy_parser.add_argument(
-        "--all", action="store_true", help="Select all legacy folders."
-    )
-    prune_legacy_parser.add_argument(
-        "--apply", action="store_true", help="Actually delete data."
-    )
-    prune_legacy_parser.set_defaults(func=cmd_prune_legacy)
 
     compact_parser = subparsers.add_parser(
         "compact", help="Delete heavy export files from old runs"
