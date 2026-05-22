@@ -34,40 +34,11 @@ exec(open("/Users/kim.schneider/Development/private/freecad/macros/folder-watch-
 
 Die Macro laeuft danach per `QTimer` weiter, solange FreeCAD offen ist. Ein erneutes Ausfuehren startet sie sauber neu.
 
-## Agent Quickstart
+## Nutzung mit Agents
 
-Dieses Tool ist fuer Coding-Agenten gebaut. Ein Mensch startet in der Regel nur FreeCAD und die Macro; danach soll der Agent Jobs selbst einreichen, Ergebnisse lesen und iterieren.
+Dieses Tool ist fuer Coding-Agenten gebaut. Ein Mensch startet in der Regel nur FreeCAD und die Macro; danach reicht der Agent Jobs ein, liest Ergebnisse und iteriert anhand der Screenshots und Metadaten.
 
-Agenten sollten diesen Ablauf verwenden:
-
-1. Einen stabilen Projektnamen fuer die Nutzeraufgabe waehlen, zum Beispiel `desk-organizer`, `lamp-concept` oder `mounting-bracket`.
-2. Eine stabile Session fuer den aktuellen Entwurf waehlen, zum Beispiel `concept-a`, `variant-b` oder `default`.
-3. Ein normales FreeCAD-Python-Script schreiben oder aktualisieren.
-4. Den Job mit `agent_submit.py` einreichen:
-
-```bash
-python3 agent_submit.py /abs/path/to/model.py \
-  --project <project> \
-  --session <session> \
-  --title <short-run-title> \
-  --step
-```
-
-5. Auf `out/projects/<project>/sessions/<session>/current/result.json` warten.
-6. Bei `status: "ok"` zuerst `current/views/iso.png` visuell pruefen, danach bei Bedarf `front.png`, `right.png`, `top.png`, Bounding Boxes und Volumen im `result.json`.
-7. Bei `status: "error"` `error` und `traceback` aus `current/result.json` lesen, das Script korrigieren und erneut einreichen.
-8. Fuer Iteration dieselbe Projekt/Session-Kombination wiederverwenden. Fuer echte Alternativen neue Sessions nutzen.
-
-Agent-Regeln:
-
-- Standardmaessig immer `--project` und `--session` setzen.
-- `--use-active-document` nur verwenden, wenn der Nutzer explizit das aktuell aktive FreeCAD-Dokument bearbeiten will.
-- `--new-document` nur verwenden, wenn der Nutzer explizit pro Run ein neues FreeCAD-Dokument will.
-- Fuer normale agentische Iteration in einer Session `--mode rebuild` nutzen, wenn das Script das Modell komplett neu aufbaut.
-- `--mode update` nur nutzen, wenn das Script vorhandene FreeCAD-Objekte stabil per Name wiederfindet und aktualisiert.
-- Nicht aus `runs/` raten, wenn `current/` verfuegbar ist. `current/` ist der stabile Einstiegspunkt fuer den letzten Stand.
-- Cleanup-Befehle zuerst ohne `--apply` ausfuehren. `--apply` nur verwenden, wenn der Nutzer Loeschen bestaetigt hat.
-- Nach Aenderungen an `freecad_folder_watch_agent.FCMacro` den Nutzer bitten, die Macro in FreeCAD neu zu starten.
+Die operativen Agent-Anweisungen stehen in `AGENTS.md`. Ein Agent, der in diesem Repository arbeitet, sollte diese Datei zuerst lesen und danach `agent_submit.py` und `agent_data.py` verwenden.
 
 ## Job einreichen
 
@@ -173,24 +144,6 @@ python3 agent_submit.py examples/history_mounting_plate.py \
 ```
 
 Beim ersten Lauf erstellt das Script eine stabile Objektkette (`Parameters`, `plate_base`, `hole_cutter_*`, `plate_cut_*`, `left_rail`, `right_rail`). Beim zweiten Lauf bleibt diese Objektkette erhalten und wird ueber Parameterwerte aktualisiert.
-
-## Workflow fuer Agenten
-
-1. Modell-Script als normale FreeCAD-Python-Datei schreiben, zum Beispiel `model.py`.
-2. Sicherstellen, dass die FreeCAD-GUI offen ist und `freecad_folder_watch_agent.FCMacro` laeuft.
-3. Job in die wiederverwendete Agent-Session einreichen:
-
-```bash
-cd /Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent
-python3 agent_submit.py /abs/path/to/model.py --project my-project --session default --title my-model --step
-```
-
-4. Auf das Ergebnis warten und `out/latest_result.json` oder `out/projects/<project>/sessions/<session>/current/result.json` lesen.
-5. Bei `status: "ok"` die Screenshots unter `out/projects/<project>/sessions/<session>/current/views/` ansehen.
-6. Bei `status: "error"` `error` und `traceback` aus `result.json` verwenden.
-7. Modell-Script anpassen und erneut mit `agent_submit.py` einreichen.
-
-Fuer visuelle Iteration ist meistens `current/views/iso.png` der erste Check. Fuer technische Kontrolle liefert `current/result.json` zusaetzlich Objektliste, Bounding Boxes, Flaechen und Volumina.
 
 Standardmaessig verwendet jeder Job das Projekt `default` und die Session `default`. FreeCAD erstellt dafuer einmal ein Dokument mit dem sichtbaren Label `Agent default`; weitere Jobs in derselben Projekt/Session-Kombination leeren nur dieses Agent-Dokument und befuellen es neu. Bereits offene Nicht-Agent-Dokumente bleiben offen und unveraendert.
 
