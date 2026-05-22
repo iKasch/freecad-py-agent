@@ -75,6 +75,12 @@ def parse_args():
         help="Reusable FreeCAD agent document/session name. Defaults to 'default'.",
     )
     parser.add_argument(
+        "--mode",
+        choices=("rebuild", "update"),
+        default="rebuild",
+        help="Session behavior. rebuild clears the session document first; update keeps existing objects and lets the script modify them.",
+    )
+    parser.add_argument(
         "--views",
         default="iso,front,right,top",
         help="Comma-separated screenshots to capture. Known: iso,front,rear,right,left,top,bottom.",
@@ -157,6 +163,7 @@ def main():
         "id": job_id,
         "session": session,
         "params": params,
+        "mode": args.mode,
         "script_path": str(copied_script),
         "document_name": safe_name("Agent_{}".format(session)),
         "document_label": "Agent {}".format(session),

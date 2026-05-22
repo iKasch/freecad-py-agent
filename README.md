@@ -61,6 +61,11 @@ out/<job-id>/
 
 Variante B bedeutet hier: Das Modell-Script liest stabile Parameter aus `PARAMS`, baut daraus reproduzierbar dieselben stabil benannten Objekte und wird in derselben Agent-Session neu berechnet. Dadurch veraendert der Agent nicht manuell beliebige FreeCAD-History, sondern iteriert ueber explizite Parameter.
 
+Es gibt zwei Modi:
+
+- `--mode rebuild`: Default. Das Session-Dokument wird vor dem Script geleert.
+- `--mode update`: Das Session-Dokument bleibt erhalten. Das Script muss vorhandene Objekte selbst finden und aktualisieren.
+
 Einzelne Parameter direkt uebergeben:
 
 ```bash
@@ -96,6 +101,27 @@ Im Modell-Script stehen die Werte als `PARAMS` bereit:
 ```python
 params = {"plate_width": 110, **PARAMS}
 ```
+
+History-/Update-Test:
+
+```bash
+python3 agent_submit.py examples/history_mounting_plate.py \
+  --session history-test \
+  --mode update \
+  --param plate_width=110 \
+  --param hole_count=4 \
+  --step
+
+python3 agent_submit.py examples/history_mounting_plate.py \
+  --session history-test \
+  --mode update \
+  --param plate_width=160 \
+  --param hole_count=6 \
+  --param rail_height=20 \
+  --step
+```
+
+Beim ersten Lauf erstellt das Script eine stabile Objektkette (`Parameters`, `plate_base`, `hole_cutter_*`, `plate_cut_*`, `left_rail`, `right_rail`). Beim zweiten Lauf bleibt diese Objektkette erhalten und wird ueber Parameterwerte aktualisiert.
 
 ## Workflow fuer Agenten
 
@@ -167,6 +193,7 @@ python3 agent_submit.py model.py \
 Wichtige Flags:
 
 - `--session NAME`: wiederverwendetes Agent-Dokument fuer iterative Arbeit, Default `default`.
+- `--mode rebuild|update`: `rebuild` leert die Session vor dem Script, `update` behaelt vorhandene Objekte fuer historiebasierte Scripts.
 - `--use-active-document`: absichtlich in das aktuell aktive FreeCAD-Dokument schreiben.
 - `--new-document`: fuer diesen Job ein frisches neues Dokument erstellen.
 - `--restore-active-document`: nach Screenshot/Export zum vorher aktiven FreeCAD-Dokument zurueckwechseln.

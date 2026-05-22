@@ -27,7 +27,7 @@ DEFAULT_ROOT = Path(
 POLL_INTERVAL_MS = 1000
 AGENT_DOCUMENT_COMMENT_PREFIX = "freecad_folder_watch_agent:"
 AGENT_SESSION_PREFIX = AGENT_DOCUMENT_COMMENT_PREFIX + "session="
-BRIDGE_VERSION = "0.4.0-parametric-jobs"
+BRIDGE_VERSION = "0.5.0-update-mode"
 
 
 def _import_qtcore():
@@ -250,6 +250,7 @@ class FolderWatchAgent:
             job.get("document_name") or "Agent_{}".format(session)
         )
         target_document = job.get("target_document", "session")
+        mode = job.get("mode", "rebuild")
         doc_label = str(job.get("document_label") or doc_name)
         if target_document == "session":
             doc_name = _freecad_internal_name("Agent_{}".format(session))
@@ -266,7 +267,8 @@ class FolderWatchAgent:
             if doc is None:
                 doc = App.newDocument(_freecad_internal_name("Agent_{}".format(session)))
             self._mark_session_document(doc, session)
-            self._clear_document(doc)
+            if mode != "update":
+                self._clear_document(doc)
 
         doc.Label = doc_label
         if target_document == "session":
