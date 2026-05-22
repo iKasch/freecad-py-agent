@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+
+inbox/*
+!inbox/.gitkeep
+
+out/*
+!out/.gitkeep
+
+logs/
