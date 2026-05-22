@@ -1,0 +1,566 @@
+"""Folder Watch Python Agent for FreeCAD.
+
+Run this macro once inside the FreeCAD GUI. It watches the local inbox folder
+for JSON jobs, executes the referenced Python script, and writes screenshots,
+exports, and a result.json file to the out folder.
+"""
+
+import json
+import os
+import shutil
+import sys
+import time
+import traceback
+from pathlib import Path
+
+import FreeCAD as App
+
+try:
+    import FreeCADGui as Gui
+except Exception:
+    Gui = None
+
+
+DEFAULT_ROOT = Path(
+    "/Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent"
+)
+POLL_INTERVAL_MS = 1000
+AGENT_DOCUMENT_COMMENT_PREFIX = "freecad_folder_watch_agent:"
+AGENT_SESSION_PREFIX = AGENT_DOCUMENT_COMMENT_PREFIX + "session="
+BRIDGE_VERSION = "0.3.4-enforce-label-after-save"
+
+
+def _import_qtcore():
+    for module_name in ("PySide6", "PySide2", "PySide"):
+        try:
+            module = __import__(module_name, fromlist=["QtCore"])
+            return module.QtCore
+        except Exception:
+            pass
+    raise RuntimeError("Could not import QtCore from PySide6, PySide2, or PySide")
+
+
+def _macro_root():
+    env_root = os.environ.get("FREECAD_AGENT_ROOT")
+    if env_root:
+        return Path(env_root).expanduser().resolve()
+
+    try:
+        return Path(__file__).resolve().parent
+    except Exception:
+        return DEFAULT_ROOT
+
+
+def _safe_name(value):
+    cleaned = []
+    for char in str(value):
+        if char.isalnum() or char in ("-", "_"):
+            cleaned.append(char)
+        else:
+            cleaned.append("_")
+    name = "".join(cleaned).strip("_")
+    return name or "freecad_agent_job"
+
+
+def _freecad_internal_name(value):
+    name = _safe_name(value).replace("-", "_")
+    if not name[0].isalpha():
+        name = "Job_{}".format(name)
+    return name
+
+
+def _session_id(value):
+    return _safe_name(value or "default")
+
+
+def _shape_objects(doc):
+    objects = []
+    for obj in getattr(doc, "Objects", []):
+        shape = getattr(obj, "Shape", None)
+        if shape is not None and not getattr(shape, "isNull", lambda: True)():
+            objects.append(obj)
+    return objects
+
+
+def _bounding_box_dict(bound_box):
+    return {
+        "x_min": bound_box.XMin,
+        "x_max": bound_box.XMax,
+        "y_min": bound_box.YMin,
+        "y_max": bound_box.YMax,
+        "z_min": bound_box.ZMin,
+        "z_max": bound_box.ZMax,
+        "x_length": bound_box.XLength,
+        "y_length": bound_box.YLength,
+        "z_length": bound_box.ZLength,
+    }
+
+
+def _document_info(doc):
+    objects = []
+    for obj in getattr(doc, "Objects", []):
+        entry = {
+            "name": getattr(obj, "Name", ""),
+            "label": getattr(obj, "Label", ""),
+            "type_id": getattr(obj, "TypeId", ""),
+        }
+        shape = getattr(obj, "Shape", None)
+        if shape is not None and not getattr(shape, "isNull", lambda: True)():
+            try:
+                entry["bounding_box"] = _bounding_box_dict(shape.BoundBox)
+                entry["volume"] = float(getattr(shape, "Volume", 0.0))
+                entry["area"] = float(getattr(shape, "Area", 0.0))
+            except Exception as exc:
+                entry["shape_error"] = str(exc)
+        objects.append(entry)
+
+    return {
+        "name": getattr(doc, "Name", ""),
+        "label": getattr(doc, "Label", ""),
+        "object_count": len(objects),
+        "objects": objects,
+    }
+
+
+class FolderWatchAgent:
+    def __init__(self, root):
+        self.root = Path(root).resolve()
+        self.inbox = self.root / "inbox"
+        self.out = self.root / "out"
+        self.logs = self.root / "logs"
+        self.running = False
+        self.current_job = None
+        self.qtcore = _import_qtcore()
+        self.timer = self.qtcore.QTimer()
+        self.timer.timeout.connect(self.tick)
+
+        for directory in (self.inbox, self.out, self.logs):
+            directory.mkdir(parents=True, exist_ok=True)
+
+    def start(self):
+        self.timer.start(POLL_INTERVAL_MS)
+        self._log(
+            "Folder Watch Python Agent started. Watching: {}".format(self.inbox)
+        )
+
+    def stop(self):
+        self.timer.stop()
+        self._log("Folder Watch Python Agent stopped.")
+
+    def tick(self):
+        if self.running:
+            return
+
+        jobs = sorted(self.inbox.glob("*.json"), key=lambda path: path.stat().st_mtime)
+        if not jobs:
+            return
+
+        job_path = jobs[0]
+        running_path = job_path.with_suffix(".running")
+        try:
+            job_path.rename(running_path)
+        except OSError:
+            return
+
+        self.running = True
+        try:
+            self._run_job(running_path)
+        finally:
+            self.running = False
+
+    def _run_job(self, running_path):
+        result = {
+            "agent_version": BRIDGE_VERSION,
+            "status": "running",
+            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "job_file": str(running_path),
+        }
+
+        try:
+            job = json.loads(running_path.read_text(encoding="utf-8"))
+            job_id = _safe_name(job.get("id") or running_path.stem)
+            result["job"] = job
+            result["job_id"] = job_id
+        except Exception as exc:
+            job_id = _safe_name(running_path.stem)
+            result.update({"status": "error", "error": str(exc)})
+            self._write_result(job_id, result, running_path)
+            return
+
+        job_out = self.out / job_id
+        job_out.mkdir(parents=True, exist_ok=True)
+        previous_doc_name = None
+        if App.ActiveDocument is not None:
+            previous_doc_name = App.ActiveDocument.Name
+
+        try:
+            self._log("Running job {}".format(job_id))
+            doc = self._prepare_document(job)
+            script_path = Path(job["script_path"]).expanduser().resolve()
+
+            if not script_path.exists():
+                raise FileNotFoundError("Script not found: {}".format(script_path))
+
+            namespace = self._script_namespace(doc, job, job_out, script_path)
+            code = script_path.read_text(encoding="utf-8")
+            exec(compile(code, str(script_path), "exec"), namespace, namespace)
+
+            if doc is not None:
+                self._enforce_document_identity(doc, job)
+                doc.recompute()
+                self._refresh_gui_document(doc)
+
+            exports = self._export_outputs(doc, job, job_out)
+            if doc is not None:
+                self._enforce_document_identity(doc, job)
+                self._refresh_gui_document(doc)
+            screenshots = self._capture_views(doc, job, job_out)
+
+            if doc is not None:
+                result["document"] = _document_info(doc)
+
+            result.update(
+                {
+                    "status": "ok",
+                    "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "output_dir": str(job_out),
+                    "exports": exports,
+                    "screenshots": screenshots,
+                }
+            )
+        except Exception as exc:
+            result.update(
+                {
+                    "status": "error",
+                    "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            self._log("Job {} failed: {}".format(job_id, exc))
+        finally:
+            if bool(job.get("restore_active_document", False)):
+                self._restore_active_document(previous_doc_name)
+
+        self._write_result(job_id, result, running_path)
+
+    def _prepare_document(self, job):
+        session = _session_id(job.get("session") or "default")
+        doc_name = _freecad_internal_name(
+            job.get("document_name") or "Agent_{}".format(session)
+        )
+        target_document = job.get("target_document", "session")
+        doc_label = str(job.get("document_label") or doc_name)
+        if target_document == "session":
+            doc_name = _freecad_internal_name("Agent_{}".format(session))
+            doc_label = "Agent {}".format(session)
+
+        if target_document == "active":
+            doc = App.ActiveDocument
+            if doc is None:
+                doc = App.newDocument(doc_name)
+        elif target_document == "new":
+            doc = App.newDocument(doc_name)
+        else:
+            doc = self._session_document(session)
+            if doc is None:
+                doc = App.newDocument(_freecad_internal_name("Agent_{}".format(session)))
+            self._mark_session_document(doc, session)
+            self._clear_document(doc)
+
+        doc.Label = doc_label
+        if target_document == "session":
+            self._mark_session_document(doc, session)
+        elif target_document == "new":
+            try:
+                doc.Comment = "{}job={}".format(
+                    AGENT_DOCUMENT_COMMENT_PREFIX, job.get("id", doc_name)
+                )
+            except Exception:
+                pass
+
+        try:
+            App.setActiveDocument(doc.Name)
+        except Exception:
+            pass
+
+        if Gui is not None and getattr(Gui, "ActiveDocument", None) is None:
+            try:
+                Gui.activeDocument()
+            except Exception:
+                pass
+
+        self._enforce_document_identity(doc, job)
+        return doc
+
+    def _enforce_document_identity(self, doc, job):
+        session = _session_id(job.get("session") or "default")
+        target_document = job.get("target_document", "session")
+        if target_document != "session":
+            return
+
+        try:
+            doc.Label = "Agent {}".format(session)
+        except Exception:
+            pass
+        self._mark_session_document(doc, session)
+
+    def _session_document(self, session):
+        marker = AGENT_SESSION_PREFIX + session
+        for doc in App.listDocuments().values():
+            try:
+                if getattr(doc, "Comment", "") == marker:
+                    return doc
+            except Exception:
+                pass
+        return None
+
+    def _mark_session_document(self, doc, session):
+        try:
+            doc.Comment = AGENT_SESSION_PREFIX + session
+        except Exception:
+            pass
+
+    def _clear_document(self, doc):
+        for obj in list(getattr(doc, "Objects", [])):
+            try:
+                doc.removeObject(obj.Name)
+            except Exception:
+                pass
+        try:
+            doc.recompute()
+        except Exception:
+            pass
+        self._refresh_gui_document(doc)
+
+    def _gui_document(self, doc):
+        if Gui is None or doc is None:
+            return None
+
+        try:
+            return Gui.getDocument(doc.Name)
+        except Exception:
+            try:
+                App.setActiveDocument(doc.Name)
+                self._process_events()
+                return Gui.getDocument(doc.Name)
+            except Exception:
+                pass
+        return None
+
+    def _refresh_gui_document(self, doc):
+        if Gui is None or doc is None:
+            return
+
+        try:
+            App.setActiveDocument(doc.Name)
+        except Exception:
+            pass
+
+        for obj in getattr(doc, "Objects", []):
+            try:
+                obj.ViewObject.Visibility = True
+            except Exception:
+                pass
+
+        try:
+            Gui.updateGui()
+        except Exception:
+            pass
+
+        self._process_events()
+
+    def _active_view_for_document(self, doc):
+        for obj in getattr(doc, "Objects", []):
+            try:
+                return obj.ViewObject.Document.activeView()
+            except Exception:
+                pass
+
+        gui_doc = self._gui_document(doc)
+        if gui_doc is None:
+            return None
+
+        for method_name in ("activeView", "ActiveView"):
+            try:
+                view = getattr(gui_doc, method_name)
+                if callable(view):
+                    return view()
+                return view
+            except Exception:
+                pass
+
+        return None
+
+    def _restore_active_document(self, doc_name):
+        if not doc_name or doc_name not in App.listDocuments():
+            return
+
+        try:
+            App.setActiveDocument(doc_name)
+        except Exception:
+            pass
+
+        if Gui is not None:
+            try:
+                Gui.getDocument(doc_name)
+            except Exception:
+                pass
+
+    def _script_namespace(self, doc, job, job_out, script_path):
+        return {
+            "__file__": str(script_path),
+            "__name__": "__freecad_agent_job__",
+            "App": App,
+            "FreeCAD": App,
+            "Gui": Gui,
+            "FreeCADGui": Gui,
+            "DOC": doc,
+            "JOB": job,
+            "OUT_DIR": job_out,
+        }
+
+    def _export_outputs(self, doc, job, job_out):
+        if doc is None:
+            return {}
+
+        export_config = job.get("exports", {})
+        base_name = _safe_name(job.get("output_name") or job.get("id") or doc.Name)
+        exports = {}
+
+        if export_config.get("fcstd", True):
+            fcstd_path = job_out / "{}.FCStd".format(base_name)
+            doc.saveAs(str(fcstd_path))
+            exports["fcstd"] = str(fcstd_path)
+
+        shape_objects = _shape_objects(doc)
+
+        if export_config.get("step", False) and shape_objects:
+            step_path = job_out / "{}.step".format(base_name)
+            try:
+                import ImportGui
+
+                ImportGui.export(shape_objects, str(step_path))
+                exports["step"] = str(step_path)
+            except Exception as exc:
+                exports["step_error"] = str(exc)
+
+        if export_config.get("stl", False) and shape_objects:
+            stl_path = job_out / "{}.stl".format(base_name)
+            try:
+                import Mesh
+
+                Mesh.export(shape_objects, str(stl_path))
+                exports["stl"] = str(stl_path)
+            except Exception as exc:
+                exports["stl_error"] = str(exc)
+
+        return exports
+
+    def _capture_views(self, doc, job, job_out):
+        screenshots = []
+        if Gui is None or doc is None:
+            return screenshots
+
+        view_names = job.get("views") or ["iso", "front", "right", "top"]
+        width = int(job.get("screenshot_width", 1400))
+        height = int(job.get("screenshot_height", 1000))
+        background = job.get("screenshot_background", "White")
+        views_dir = job_out / "views"
+        views_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            App.setActiveDocument(doc.Name)
+        except Exception:
+            pass
+        self._process_events()
+
+        for view_name in view_names:
+            view_slug = _safe_name(view_name).lower()
+            screenshot_path = views_dir / "{}.png".format(view_slug)
+            try:
+                active_view = self._active_view_for_document(doc)
+                if active_view is None:
+                    raise RuntimeError("No GUI view available for {}".format(doc.Name))
+                self._set_view(active_view, view_slug)
+                self._process_events()
+                active_view.saveImage(str(screenshot_path), width, height, background)
+                screenshots.append(str(screenshot_path))
+            except Exception as exc:
+                screenshots.append(
+                    {"view": view_slug, "path": str(screenshot_path), "error": str(exc)}
+                )
+
+        return screenshots
+
+    def _set_view(self, active_view, view_name):
+        method_names = {
+            "iso": "viewIsometric",
+            "isometric": "viewIsometric",
+            "front": "viewFront",
+            "rear": "viewRear",
+            "back": "viewRear",
+            "right": "viewRight",
+            "left": "viewLeft",
+            "top": "viewTop",
+            "bottom": "viewBottom",
+        }
+        method = method_names.get(view_name, "viewIsometric")
+        getattr(active_view, method)()
+        active_view.fitAll()
+        try:
+            Gui.updateGui()
+        except Exception:
+            pass
+        try:
+            Gui.SendMsgToActiveView("ViewFit")
+        except Exception:
+            pass
+
+    def _process_events(self):
+        try:
+            self.qtcore.QCoreApplication.processEvents()
+        except Exception:
+            pass
+        time.sleep(0.1)
+
+    def _write_result(self, job_id, result, running_path):
+        job_out = self.out / job_id
+        job_out.mkdir(parents=True, exist_ok=True)
+        result_path = job_out / "result.json"
+        result_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+
+        latest_path = self.out / "latest_result.json"
+        latest_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+
+        try:
+            shutil.move(str(running_path), str(job_out / "job.json"))
+        except Exception:
+            pass
+
+        self._log("Finished job {} with status {}".format(job_id, result["status"]))
+
+    def _log(self, message):
+        line = "[{}] {}\n".format(time.strftime("%Y-%m-%d %H:%M:%S"), message)
+        try:
+            with (self.logs / "freecad_folder_watch_agent.log").open(
+                "a", encoding="utf-8"
+            ) as log_file:
+                log_file.write(line)
+        except Exception:
+            pass
+        try:
+            App.Console.PrintMessage(line)
+        except Exception:
+            sys.stdout.write(line)
+
+
+try:
+    if hasattr(App, "_folder_watch_agent"):
+        App._folder_watch_agent.stop()
+except Exception:
+    pass
+
+FOLDER_WATCH_AGENT = FolderWatchAgent(_macro_root())
+App._folder_watch_agent = FOLDER_WATCH_AGENT
+FOLDER_WATCH_AGENT.start()
