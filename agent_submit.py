@@ -91,7 +91,7 @@ def parse_args():
     target_group.add_argument(
         "--use-active-document",
         action="store_true",
-        help="Run the script in the current active FreeCAD document. Default: create a new document and leave existing documents untouched.",
+        help="Run the script in the current active FreeCAD document. Default: reuse the named agent session document.",
     )
     target_group.add_argument(
         "--new-document",
