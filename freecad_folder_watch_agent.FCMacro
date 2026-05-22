@@ -27,7 +27,8 @@ DEFAULT_ROOT = Path(
 POLL_INTERVAL_MS = 1000
 AGENT_DOCUMENT_COMMENT_PREFIX = "freecad_folder_watch_agent:"
 AGENT_SESSION_PREFIX = AGENT_DOCUMENT_COMMENT_PREFIX + "session="
-BRIDGE_VERSION = "0.5.3-fit-visible-view"
+AGENT_PROJECT_SESSION_PREFIX = AGENT_DOCUMENT_COMMENT_PREFIX + "project_session="
+BRIDGE_VERSION = "0.6.0-session-output-management"
 
 
 def _import_qtcore():
@@ -71,6 +72,55 @@ def _freecad_internal_name(value):
 
 def _session_id(value):
     return _safe_name(value or "default")
+
+
+def _project_id(value):
+    return _safe_name(value or "default")
+
+
+def _now_iso():
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+
+def _read_json(path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def _write_json(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _append_jsonl(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as jsonl_file:
+        jsonl_file.write(json.dumps(payload, sort_keys=True))
+        jsonl_file.write("\n")
+
+
+def _agent_document_name(project, session):
+    if project == "default":
+        return _freecad_internal_name("Agent_{}".format(session))
+    return _freecad_internal_name("Agent_{}_{}".format(project, session))
+
+
+def _agent_document_label(project, session):
+    if project == "default":
+        return "Agent {}".format(session)
+    return "Agent {} / {}".format(project, session)
+
+
+def _session_marker(project, session):
+    return "{}{}/{}".format(AGENT_PROJECT_SESSION_PREFIX, project, session)
+
+
+def _legacy_session_marker(session):
+    return "{}{}".format(AGENT_SESSION_PREFIX, session)
 
 
 def _shape_objects(doc, visible_only=False):
@@ -178,22 +228,33 @@ class FolderWatchAgent:
         result = {
             "agent_version": BRIDGE_VERSION,
             "status": "running",
-            "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "started_at": _now_iso(),
             "job_file": str(running_path),
         }
 
         try:
             job = json.loads(running_path.read_text(encoding="utf-8"))
             job_id = _safe_name(job.get("id") or running_path.stem)
+            project = _project_id(job.get("project") or "default")
+            session = _session_id(job.get("session") or "default")
+            job["project"] = project
+            job["session"] = session
+            paths = self._job_paths(job, job_id)
             result["job"] = job
             result["job_id"] = job_id
+            result["project"] = project
+            result["session"] = session
+            result["run_id"] = paths["run_id"]
+            result["run_number"] = paths["run_number"]
+            result["session_dir"] = str(paths["session_dir"])
+            result["current_dir"] = str(paths["current_dir"])
         except Exception as exc:
             job_id = _safe_name(running_path.stem)
             result.update({"status": "error", "error": str(exc)})
-            self._write_result(job_id, result, running_path)
+            self._write_result(job_id, result, running_path, None)
             return
 
-        job_out = self.out / job_id
+        job_out = paths["run_dir"]
         job_out.mkdir(parents=True, exist_ok=True)
         previous_doc_name = None
         if App.ActiveDocument is not None:
@@ -228,7 +289,7 @@ class FolderWatchAgent:
             result.update(
                 {
                     "status": "ok",
-                    "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "finished_at": _now_iso(),
                     "output_dir": str(job_out),
                     "exports": exports,
                     "screenshots": screenshots,
@@ -238,7 +299,7 @@ class FolderWatchAgent:
             result.update(
                 {
                     "status": "error",
-                    "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "finished_at": _now_iso(),
                     "error": str(exc),
                     "traceback": traceback.format_exc(),
                 }
@@ -248,9 +309,54 @@ class FolderWatchAgent:
             if bool(job.get("restore_active_document", False)):
                 self._restore_active_document(previous_doc_name)
 
-        self._write_result(job_id, result, running_path)
+        self._write_result(job_id, result, running_path, paths)
+
+    def _job_paths(self, job, job_id):
+        project = _project_id(job.get("project") or "default")
+        session = _session_id(job.get("session") or "default")
+        project_dir = self.out / "projects" / project
+        session_dir = project_dir / "sessions" / session
+        runs_dir = session_dir / "runs"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+
+        run_number = self._next_run_number(runs_dir)
+        run_label = _safe_name(
+            job.get("job_title") or job.get("output_name") or job_id
+        )
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        run_id = "{:06d}-{}-{}".format(run_number, timestamp, run_label)
+        run_dir = runs_dir / run_id
+        while run_dir.exists():
+            run_number += 1
+            run_id = "{:06d}-{}-{}".format(run_number, timestamp, run_label)
+            run_dir = runs_dir / run_id
+
+        return {
+            "project": project,
+            "session": session,
+            "project_dir": project_dir,
+            "session_dir": session_dir,
+            "runs_dir": runs_dir,
+            "run_dir": run_dir,
+            "current_dir": session_dir / "current",
+            "run_id": run_id,
+            "run_number": run_number,
+        }
+
+    def _next_run_number(self, runs_dir):
+        highest = 0
+        for path in runs_dir.iterdir():
+            if not path.is_dir():
+                continue
+            prefix = path.name.split("-", 1)[0]
+            try:
+                highest = max(highest, int(prefix))
+            except ValueError:
+                pass
+        return highest + 1
 
     def _prepare_document(self, job):
+        project = _project_id(job.get("project") or "default")
         session = _session_id(job.get("session") or "default")
         doc_name = _freecad_internal_name(
             job.get("document_name") or "Agent_{}".format(session)
@@ -259,8 +365,8 @@ class FolderWatchAgent:
         mode = job.get("mode", "rebuild")
         doc_label = str(job.get("document_label") or doc_name)
         if target_document == "session":
-            doc_name = _freecad_internal_name("Agent_{}".format(session))
-            doc_label = "Agent {}".format(session)
+            doc_name = _agent_document_name(project, session)
+            doc_label = _agent_document_label(project, session)
 
         if target_document == "active":
             doc = App.ActiveDocument
@@ -269,16 +375,16 @@ class FolderWatchAgent:
         elif target_document == "new":
             doc = App.newDocument(doc_name)
         else:
-            doc = self._session_document(session)
+            doc = self._session_document(project, session)
             if doc is None:
-                doc = App.newDocument(_freecad_internal_name("Agent_{}".format(session)))
-            self._mark_session_document(doc, session)
+                doc = App.newDocument(_agent_document_name(project, session))
+            self._mark_session_document(doc, project, session)
             if mode != "update":
                 self._clear_document(doc)
 
         doc.Label = doc_label
         if target_document == "session":
-            self._mark_session_document(doc, session)
+            self._mark_session_document(doc, project, session)
         elif target_document == "new":
             try:
                 doc.Comment = "{}job={}".format(
@@ -302,30 +408,34 @@ class FolderWatchAgent:
         return doc
 
     def _enforce_document_identity(self, doc, job):
+        project = _project_id(job.get("project") or "default")
         session = _session_id(job.get("session") or "default")
         target_document = job.get("target_document", "session")
         if target_document != "session":
             return
 
         try:
-            doc.Label = "Agent {}".format(session)
+            doc.Label = _agent_document_label(project, session)
         except Exception:
             pass
-        self._mark_session_document(doc, session)
+        self._mark_session_document(doc, project, session)
 
-    def _session_document(self, session):
-        marker = AGENT_SESSION_PREFIX + session
+    def _session_document(self, project, session):
+        marker = _session_marker(project, session)
+        legacy_marker = _legacy_session_marker(session)
         for doc in App.listDocuments().values():
             try:
                 if getattr(doc, "Comment", "") == marker:
+                    return doc
+                if project == "default" and getattr(doc, "Comment", "") == legacy_marker:
                     return doc
             except Exception:
                 pass
         return None
 
-    def _mark_session_document(self, doc, session):
+    def _mark_session_document(self, doc, project, session):
         try:
-            doc.Comment = AGENT_SESSION_PREFIX + session
+            doc.Comment = _session_marker(project, session)
         except Exception:
             pass
 
@@ -530,21 +640,93 @@ class FolderWatchAgent:
             pass
         time.sleep(0.2)
 
-    def _write_result(self, job_id, result, running_path):
-        job_out = self.out / job_id
-        job_out.mkdir(parents=True, exist_ok=True)
-        result_path = job_out / "result.json"
-        result_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+    def _write_result(self, job_id, result, running_path, paths):
+        if paths is None:
+            job_out = self.out / "errors" / job_id
+        else:
+            job_out = paths["run_dir"]
 
-        latest_path = self.out / "latest_result.json"
-        latest_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+        job_out.mkdir(parents=True, exist_ok=True)
+        result["output_dir"] = str(job_out)
+        result_path = job_out / "result.json"
+        _write_json(result_path, result)
 
         try:
             shutil.move(str(running_path), str(job_out / "job.json"))
         except Exception:
             pass
 
+        if paths is not None:
+            self._sync_current(paths["run_dir"], paths["current_dir"])
+            self._update_metadata(paths, result)
+            self._append_session_index(paths, result)
+
+            session_latest = paths["session_dir"] / "latest_result.json"
+            project_latest = paths["project_dir"] / "latest_result.json"
+            _write_json(session_latest, result)
+            _write_json(project_latest, result)
+
+        latest_path = self.out / "latest_result.json"
+        _write_json(latest_path, result)
+
         self._log("Finished job {} with status {}".format(job_id, result["status"]))
+
+    def _sync_current(self, run_dir, current_dir):
+        tmp_current = current_dir.with_name("current.tmp")
+        try:
+            if tmp_current.exists():
+                shutil.rmtree(str(tmp_current))
+            shutil.copytree(str(run_dir), str(tmp_current))
+            if current_dir.exists():
+                shutil.rmtree(str(current_dir))
+            tmp_current.rename(current_dir)
+        except Exception as exc:
+            self._log("Could not update current output: {}".format(exc))
+
+    def _update_metadata(self, paths, result):
+        now = result.get("finished_at") or _now_iso()
+        project_meta_path = paths["project_dir"] / "project.json"
+        project_meta = _read_json(project_meta_path, {})
+        project_meta.setdefault("id", paths["project"])
+        project_meta.setdefault("created_at", now)
+        project_meta["updated_at"] = now
+        project_meta["latest_session"] = paths["session"]
+        project_meta["latest_run"] = paths["run_id"]
+        _write_json(project_meta_path, project_meta)
+
+        session_meta_path = paths["session_dir"] / "session.json"
+        session_meta = _read_json(session_meta_path, {})
+        session_meta.setdefault("project", paths["project"])
+        session_meta.setdefault("id", paths["session"])
+        session_meta.setdefault("created_at", now)
+        session_meta["updated_at"] = now
+        session_meta["current_run"] = paths["run_id"]
+        session_meta["current_result"] = str(paths["current_dir"] / "result.json")
+        session_meta["latest_status"] = result.get("status")
+        session_meta["run_count"] = self._count_run_dirs(paths["runs_dir"])
+        _write_json(session_meta_path, session_meta)
+
+    def _append_session_index(self, paths, result):
+        summary = {
+            "job_id": result.get("job_id"),
+            "run_id": paths["run_id"],
+            "run_number": paths["run_number"],
+            "project": paths["project"],
+            "session": paths["session"],
+            "status": result.get("status"),
+            "started_at": result.get("started_at"),
+            "finished_at": result.get("finished_at"),
+            "output_dir": str(paths["run_dir"]),
+            "current_dir": str(paths["current_dir"]),
+            "job_title": (result.get("job") or {}).get("job_title"),
+        }
+        _append_jsonl(paths["session_dir"] / "index.jsonl", summary)
+
+    def _count_run_dirs(self, runs_dir):
+        try:
+            return len([path for path in runs_dir.iterdir() if path.is_dir()])
+        except Exception:
+            return 0
 
     def _log(self, message):
         line = "[{}] {}\n".format(time.strftime("%Y-%m-%d %H:%M:%S"), message)
