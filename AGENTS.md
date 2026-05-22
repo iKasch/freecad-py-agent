@@ -1,10 +1,12 @@
 # Agent Instructions
 
-This repository is a local bridge between a coding agent and a running FreeCAD GUI. The human installs one FreeCAD macro wrapper and starts it; the agent works from the generated workspace, writes FreeCAD Python scripts, submits jobs, reads screenshots/results, and iterates.
+This repository is a local bridge between an external coding agent and a running FreeCAD GUI. It does not provide an AI agent inside FreeCAD. The human installs one FreeCAD macro wrapper and starts it; you, the external file-capable coding agent, work from the generated workspace, write FreeCAD Python scripts, submit jobs, read screenshots/results, and iterate.
 
 ## First Response To A User
 
 When a user asks you to build or modify a FreeCAD model with this repository, first make sure the runtime bridge is available.
+
+Make it clear that the user should use their own coding agent, such as Codex, Claude Code, or another agent that can read and write local files. The agent should work in the generated workspace, not inside FreeCAD itself.
 
 Do not submit a FreeCAD job or create test geometry just to verify the bridge. Reading this file, inspecting CLI help, checking folders, and asking the user whether FreeCAD is open are safe readiness checks. Submitting a job changes the user's FreeCAD session and is only allowed after the user asks for a concrete model/change, or after the user explicitly asks you to test the bridge.
 
