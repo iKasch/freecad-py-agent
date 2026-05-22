@@ -45,12 +45,16 @@ Do not write job files directly into `inbox/`. Use `agent_submit.py`; it copies 
 
 Always submit jobs with explicit `--project` and `--session`.
 
+Before the first submit in a conversation, establish the project/session target. If the user has not named a project, ask for a project name. Do not silently use `default` just because it is the CLI default.
+
 Choose names like this:
 
 - `--project`: stable slug for the user's overall task, product, or model family, for example `desk-organizer` or `mounting-bracket`.
-- `--session`: stable slug for the current design branch, for example `default`, `concept-a`, or `variant-b`.
+- `--session`: stable slug for the current view, design branch, or representation, for example `default`, `exploded`, `concept-a`, or `variant-b`.
 
-Reuse the same project/session while iterating on the same design. Use a new session for a real alternative that should stay separate.
+Use `agent_data.py list` to inspect existing project/session folders before choosing a target. If the intended project already has sessions, continue the matching session instead of creating or overwriting another one. If the user wants another view of the same model, use the same project and a different session, for example `default` for the assembled model and `exploded` for an exploded view.
+
+Reuse the same project/session while iterating on the same view or design branch. Use a new session for a real alternative or representation that should stay separate. If it is unclear whether the next job should update `default`, `exploded`, or another existing session, ask the user before submitting.
 
 ## Normal Job Flow
 
