@@ -27,7 +27,7 @@ DEFAULT_ROOT = Path(
 POLL_INTERVAL_MS = 1000
 AGENT_DOCUMENT_COMMENT_PREFIX = "freecad_folder_watch_agent:"
 AGENT_SESSION_PREFIX = AGENT_DOCUMENT_COMMENT_PREFIX + "session="
-BRIDGE_VERSION = "0.3.4-enforce-label-after-save"
+BRIDGE_VERSION = "0.4.0-parametric-jobs"
 
 
 def _import_qtcore():
@@ -418,6 +418,7 @@ class FolderWatchAgent:
             "DOC": doc,
             "JOB": job,
             "OUT_DIR": job_out,
+            "PARAMS": dict(job.get("params") or {}),
         }
 
     def _export_outputs(self, doc, job, job_out):
