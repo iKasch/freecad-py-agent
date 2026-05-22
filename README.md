@@ -1,17 +1,27 @@
 # FreeCAD Folder Watch Python Agent
 
-Local bridge between a coding agent and FreeCAD. FreeCAD runs one macro, watches the `inbox/` folder, executes submitted Python jobs, renders screenshots, and stores structured results under `out/`.
+Local bridge between a coding agent and FreeCAD. FreeCAD runs one macro, watches a workspace `inbox/`, executes submitted Python jobs, renders screenshots, and stores structured results under `out/`.
 
-The human starts FreeCAD and the macro. The agent writes model scripts, submits jobs, reads `result.json` and screenshots, and iterates.
+The human starts FreeCAD and the macro. The agent works from the generated workspace, writes model scripts, submits jobs, reads `result.json` and screenshots, and iterates.
 
-## Structure
+## What To Clone
+
+Clone this repository. Do not set this repository as FreeCAD's macro folder.
+
+Run the setup script once. It creates:
+
+- a clean agent workspace, by default `~/FreeCADAgent`
+- one FreeCAD macro wrapper, `freecad_agent.FCMacro`
+
+The workspace contains only the files agents need:
 
 ```text
-folder-watch-py-agent/
-  freecad_folder_watch_agent.FCMacro  # FreeCAD-side folder watcher
+FreeCADAgent/
+  freecad_folder_watch_agent.FCMacro  # bridge macro source
   agent_submit.py                     # submits jobs to inbox/
   agent_data.py                       # lists and cleans output data
   AGENTS.md                           # operational runbook for agents
+  README.md                           # short user documentation
   examples/                           # tracked example models
   models/                             # local model scripts, git-ignored
   inbox/                              # incoming jobs
@@ -21,31 +31,38 @@ folder-watch-py-agent/
 
 ## Installation
 
-Run this from the repository root:
+From the cloned repository:
 
 ```bash
-python3 install_macro_symlink.py
+python3 setup_freecad_agent.py
 ```
 
-Then open FreeCAD and start the macro:
+Then open FreeCAD and run the generated macro:
 
 ```text
-Macro > Macros... > freecad_folder_watch_agent.FCMacro > Execute
+Macro > Macros... > freecad_agent.FCMacro > Execute
 ```
 
-Keep FreeCAD open while the agent works. After changing `freecad_folder_watch_agent.FCMacro`, run the macro again in FreeCAD.
+Keep FreeCAD open while the agent works. After changing or updating `freecad_folder_watch_agent.FCMacro`, run `freecad_agent.FCMacro` again in FreeCAD so the running bridge reloads the new code.
+
+Custom workspace:
+
+```bash
+python3 setup_freecad_agent.py --workspace /path/to/FreeCADAgent
+```
 
 ## Agent Usage
 
-Agents should read `AGENTS.md` first. It is the operational runbook: when to ask the user, how to choose project/session names, when jobs may be submitted, and how results should be checked.
+Tell the agent to work from the generated workspace and read `AGENTS.md` first. That file is the operational runbook: when to ask the user, how to choose project/session names, when jobs may be submitted, and how results should be checked.
 
 Short flow:
 
-1. User starts FreeCAD and the macro.
-2. Agent establishes a project and session, for example `smart-convert-case` and `default` or `exploded`.
-3. Agent stores local model scripts under `models/`.
-4. Agent submits jobs with `agent_submit.py`.
-5. Agent reads the current state from `out/projects/<project>/sessions/<session>/current/`.
+1. User starts FreeCAD and runs `freecad_agent.FCMacro`.
+2. Agent works from the generated workspace.
+3. Agent establishes a project and session, for example `smart-convert-case` and `default` or `exploded`.
+4. Agent stores local model scripts under `models/`.
+5. Agent submits jobs with `agent_submit.py`.
+6. Agent reads the current state from `out/projects/<project>/sessions/<session>/current/`.
 
 Example:
 

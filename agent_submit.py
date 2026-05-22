@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 
-DEFAULT_ROOT = Path(__file__).resolve().parent
+DEFAULT_ROOT = Path(__file__).parent.absolute()
 
 
 def safe_name(value):
