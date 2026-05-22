@@ -1,8 +1,8 @@
 # FreeCAD Folder Watch Python Agent
 
-Local bridge between a coding agent and FreeCAD. FreeCAD runs one macro, watches a workspace `inbox/`, executes submitted Python jobs, renders screenshots, and stores structured results under `out/`.
+Local bridge between your own coding agent and FreeCAD. FreeCAD runs one macro, watches a workspace `inbox/`, executes submitted Python jobs, renders screenshots, and stores structured results under `out/`.
 
-The human starts FreeCAD and the macro. The agent works from the generated workspace, writes model scripts, submits jobs, reads `result.json` and screenshots, and iterates.
+This project does not include or run an AI agent inside FreeCAD. Use an external agent that can read and write local files, for example Codex, Claude Code, or a similar coding agent. The human starts FreeCAD and the macro; the external agent works from the generated workspace, writes model scripts, submits jobs, reads `result.json` and screenshots, and iterates.
 
 ## What To Clone
 
@@ -13,7 +13,7 @@ Run the setup script once. It creates:
 - a clean agent workspace, by default `~/FreeCADAgent`
 - one FreeCAD macro wrapper, `freecad_agent.FCMacro`
 
-The workspace contains only the files agents need:
+Point your external coding agent at the generated workspace. The workspace contains only the files the agent needs:
 
 ```text
 FreeCADAgent/
@@ -53,12 +53,12 @@ python3 setup_freecad_agent.py --workspace /path/to/FreeCADAgent
 
 ## Agent Usage
 
-Tell the agent to work from the generated workspace and read `AGENTS.md` first. That file is the operational runbook: when to ask the user, how to choose project/session names, when jobs may be submitted, and how results should be checked.
+Open your external coding agent in the generated workspace, or tell it that this workspace is the working directory for the FreeCAD bridge. Then tell it to read `AGENTS.md` first. That file is the operational runbook: when to ask the user, how to choose project/session names, when jobs may be submitted, and how results should be checked.
 
 Short flow:
 
 1. User starts FreeCAD and runs `freecad_agent.FCMacro`.
-2. Agent works from the generated workspace.
+2. User starts their own file-capable coding agent in the generated workspace.
 3. Agent establishes a project and session, for example `smart-convert-case` and `default` or `exploded`.
 4. Agent stores local model scripts under `models/`.
 5. Agent submits jobs with `agent_submit.py`.

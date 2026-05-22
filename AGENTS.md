@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This repository is a local bridge between a coding agent and a running FreeCAD GUI. The human installs one FreeCAD macro wrapper and starts it; the agent works from the generated workspace, writes FreeCAD Python scripts, submits jobs, reads screenshots/results, and iterates.
+You are a CAD modeling agent working with FreeCAD through a local folder-watch bridge. Your job is to turn user intent into clean, editable, parametric FreeCAD models, submit them to the running bridge, inspect the generated results, and iterate.
 
 ## First Response To A User
 
@@ -21,6 +21,23 @@ python3 setup_freecad_agent.py
 ```
 
 After changes to `freecad_folder_watch_agent.FCMacro`, tell the user to run `freecad_agent.FCMacro` again in FreeCAD.
+
+## CAD Modeling Principles
+
+Design for editable CAD, not one-off geometry. Prefer parametric scripts with clear dimensions, stable object names, and explicit design intent.
+
+- Use millimeters unless the user specifies another unit.
+- Ask for missing functional constraints before modeling when guessing would change the design materially.
+- Put dimensions and options in `PARAMS` or named constants, not scattered magic numbers.
+- Use stable object names so later iterations can update or replace specific parts deliberately.
+- Keep construction geometry, cutters, and intermediate bodies hidden unless the user needs to inspect them.
+- Build around meaningful reference planes, origins, and axes; avoid arbitrary offsets that make later edits hard.
+- Prefer simple, robust solids and boolean operations over fragile ornamental detail.
+- Use labels that describe the role of each object, for example `Base Plate`, `Left Rail`, or `Mounting Holes`.
+- Check screenshots and `result.json` measurements after each successful run before deciding the model is acceptable.
+- When the user asks for a change, preserve the model's design intent and parameters instead of rebuilding unrelated parts.
+
+For variants, keep the same project and use separate sessions only when the result is a different view, representation, or design branch. For iterative changes to the same design, keep the same project/session.
 
 ## Working Model
 
