@@ -57,6 +57,72 @@ out/<job-id>/
 
 `out/latest_result.json` zeigt immer auf den zuletzt verarbeiteten Jobstatus.
 
+## Parametrische Iteration
+
+Variante B bedeutet hier: Das Modell-Script liest stabile Parameter aus `PARAMS`, baut daraus reproduzierbar dieselben stabil benannten Objekte und wird in derselben Agent-Session neu berechnet. Dadurch veraendert der Agent nicht manuell beliebige FreeCAD-History, sondern iteriert ueber explizite Parameter.
+
+Es gibt zwei Modi:
+
+- `--mode rebuild`: Default. Das Session-Dokument wird vor dem Script geleert.
+- `--mode update`: Das Session-Dokument bleibt erhalten. Das Script muss vorhandene Objekte selbst finden und aktualisieren.
+
+Einzelne Parameter direkt uebergeben:
+
+```bash
+python3 agent_submit.py examples/parametric_mounting_plate.py \
+  --session default \
+  --title parametric-plate-wide \
+  --param plate_width=150 \
+  --param hole_count=5 \
+  --param hole_diameter=11 \
+  --step
+```
+
+Oder Parameter als JSON-Datei:
+
+```json
+{
+  "plate_width": 150,
+  "plate_depth": 70,
+  "hole_count": 5,
+  "rail_height": 16
+}
+```
+
+```bash
+python3 agent_submit.py examples/parametric_mounting_plate.py \
+  --session default \
+  --params-file params.json \
+  --step
+```
+
+Im Modell-Script stehen die Werte als `PARAMS` bereit:
+
+```python
+params = {"plate_width": 110, **PARAMS}
+```
+
+History-/Update-Test:
+
+```bash
+python3 agent_submit.py examples/history_mounting_plate.py \
+  --session history-test \
+  --mode update \
+  --param plate_width=110 \
+  --param hole_count=4 \
+  --step
+
+python3 agent_submit.py examples/history_mounting_plate.py \
+  --session history-test \
+  --mode update \
+  --param plate_width=160 \
+  --param hole_count=6 \
+  --param rail_height=20 \
+  --step
+```
+
+Beim ersten Lauf erstellt das Script eine stabile Objektkette (`Parameters`, `plate_base`, `hole_cutter_*`, `plate_cut_*`, `left_rail`, `right_rail`). Beim zweiten Lauf bleibt diese Objektkette erhalten und wird ueber Parameterwerte aktualisiert.
+
 ## Workflow fuer Agenten
 
 1. Modell-Script als normale FreeCAD-Python-Datei schreiben, zum Beispiel `model.py`.
@@ -86,7 +152,7 @@ python3 agent_submit.py model.py --session lamp-concept
 
 Nur mit `--use-active-document` wird absichtlich in das aktuell aktive FreeCAD-Dokument geschrieben. Nur mit `--new-document` wird fuer jeden Job ein frisches neues Dokument erstellt.
 
-Wichtig: Nach Updates an `freecad_folder_watch_agent.FCMacro` die Macro in FreeCAD erneut ausfuehren. In `result.json` sollte `agent_version` stehen; fuer wiederverwendete Session-Dokumente mindestens `0.3.0-session-document`, fuer stabile Screenshots nach Session-Updates mindestens `0.3.1-session-view-refresh`, fuer stabile sichtbare Session-Namen mindestens `0.3.4-enforce-label-after-save`.
+Wichtig: Nach Updates an `freecad_folder_watch_agent.FCMacro` die Macro in FreeCAD erneut ausfuehren. In `result.json` sollte `agent_version` stehen; fuer den aktuellen parametrischen Update-Workflow mindestens `0.5.3-fit-visible-view`.
 
 ## Modell-Scripts
 
@@ -98,6 +164,7 @@ Gui      # FreeCADGui module, wenn in der GUI verfuegbar
 DOC      # aktives Dokument
 JOB      # Job-Dictionary aus der JSON-Datei
 OUT_DIR  # Ausgabeordner fuer diesen Job
+PARAMS   # Parameter-Dictionary aus --param und --params-file
 ```
 
 Minimalbeispiel:
@@ -126,9 +193,12 @@ python3 agent_submit.py model.py \
 Wichtige Flags:
 
 - `--session NAME`: wiederverwendetes Agent-Dokument fuer iterative Arbeit, Default `default`.
+- `--mode rebuild|update`: `rebuild` leert die Session vor dem Script, `update` behaelt vorhandene Objekte fuer historiebasierte Scripts.
 - `--use-active-document`: absichtlich in das aktuell aktive FreeCAD-Dokument schreiben.
 - `--new-document`: fuer diesen Job ein frisches neues Dokument erstellen.
 - `--restore-active-document`: nach Screenshot/Export zum vorher aktiven FreeCAD-Dokument zurueckwechseln.
+- `--params-file PATH`: JSON-Datei mit Parametern fuer das Script.
+- `--param KEY=VALUE`: einzelnen Parameter setzen oder ueberschreiben; `VALUE` wird als JSON geparst, wenn moeglich.
 - `--step`: zusaetzlich STEP exportieren.
 - `--stl`: zusaetzlich STL exportieren.
 - `--no-fcstd`: keine `.FCStd` speichern.

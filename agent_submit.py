@@ -23,6 +23,40 @@ def safe_name(value):
     return name or "freecad_agent_job"
 
 
+def parse_param_value(value):
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def parse_param_assignment(value):
+    if "=" not in value:
+        raise argparse.ArgumentTypeError(
+            "Parameters must use KEY=VALUE format, got: {}".format(value)
+        )
+
+    key, raw_value = value.split("=", 1)
+    key = key.strip()
+    if not key:
+        raise argparse.ArgumentTypeError("Parameter key cannot be empty")
+    return key, parse_param_value(raw_value.strip())
+
+
+def load_params(path):
+    if path is None:
+        return {}
+
+    params_path = Path(path).expanduser().resolve()
+    with params_path.open(encoding="utf-8") as params_file:
+        params = json.load(params_file)
+
+    if not isinstance(params, dict):
+        raise SystemExit("Parameter file must contain a JSON object: {}".format(params_path))
+
+    return params
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Submit a FreeCAD Python script to the running folder-watch macro."
@@ -41,6 +75,12 @@ def parse_args():
         help="Reusable FreeCAD agent document/session name. Defaults to 'default'.",
     )
     parser.add_argument(
+        "--mode",
+        choices=("rebuild", "update"),
+        default="rebuild",
+        help="Session behavior. rebuild clears the session document first; update keeps existing objects and lets the script modify them.",
+    )
+    parser.add_argument(
         "--views",
         default="iso,front,right,top",
         help="Comma-separated screenshots to capture. Known: iso,front,rear,right,left,top,bottom.",
@@ -51,7 +91,7 @@ def parse_args():
     target_group.add_argument(
         "--use-active-document",
         action="store_true",
-        help="Run the script in the current active FreeCAD document. Default: create a new document and leave existing documents untouched.",
+        help="Run the script in the current active FreeCAD document. Default: reuse the named agent session document.",
     )
     target_group.add_argument(
         "--new-document",
@@ -62,6 +102,18 @@ def parse_args():
         "--restore-active-document",
         action="store_true",
         help="After rendering, switch FreeCAD back to the previously active document.",
+    )
+    parser.add_argument(
+        "--params-file",
+        help="Path to a JSON object with script parameters exposed as PARAMS.",
+    )
+    parser.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        type=parse_param_assignment,
+        metavar="KEY=VALUE",
+        help="Set or override one script parameter. VALUE is parsed as JSON when possible.",
     )
     parser.add_argument("--step", action="store_true", help="Also export STEP")
     parser.add_argument("--stl", action="store_true", help="Also export STL")
@@ -103,9 +155,15 @@ def main():
     tmp_script.replace(copied_script)
 
     views = [item.strip() for item in args.views.split(",") if item.strip()]
+    params = load_params(args.params_file)
+    for key, value in args.param:
+        params[key] = value
+
     job = {
         "id": job_id,
         "session": session,
+        "params": params,
+        "mode": args.mode,
         "script_path": str(copied_script),
         "document_name": safe_name("Agent_{}".format(session)),
         "document_label": "Agent {}".format(session),

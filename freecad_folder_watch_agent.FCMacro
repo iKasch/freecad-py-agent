@@ -27,7 +27,7 @@ DEFAULT_ROOT = Path(
 POLL_INTERVAL_MS = 1000
 AGENT_DOCUMENT_COMMENT_PREFIX = "freecad_folder_watch_agent:"
 AGENT_SESSION_PREFIX = AGENT_DOCUMENT_COMMENT_PREFIX + "session="
-BRIDGE_VERSION = "0.3.4-enforce-label-after-save"
+BRIDGE_VERSION = "0.5.3-fit-visible-view"
 
 
 def _import_qtcore():
@@ -73,9 +73,15 @@ def _session_id(value):
     return _safe_name(value or "default")
 
 
-def _shape_objects(doc):
+def _shape_objects(doc, visible_only=False):
     objects = []
     for obj in getattr(doc, "Objects", []):
+        if visible_only:
+            try:
+                if not obj.ViewObject.Visibility:
+                    continue
+            except Exception:
+                pass
         shape = getattr(obj, "Shape", None)
         if shape is not None and not getattr(shape, "isNull", lambda: True)():
             objects.append(obj)
@@ -250,6 +256,7 @@ class FolderWatchAgent:
             job.get("document_name") or "Agent_{}".format(session)
         )
         target_document = job.get("target_document", "session")
+        mode = job.get("mode", "rebuild")
         doc_label = str(job.get("document_label") or doc_name)
         if target_document == "session":
             doc_name = _freecad_internal_name("Agent_{}".format(session))
@@ -266,7 +273,8 @@ class FolderWatchAgent:
             if doc is None:
                 doc = App.newDocument(_freecad_internal_name("Agent_{}".format(session)))
             self._mark_session_document(doc, session)
-            self._clear_document(doc)
+            if mode != "update":
+                self._clear_document(doc)
 
         doc.Label = doc_label
         if target_document == "session":
@@ -357,12 +365,6 @@ class FolderWatchAgent:
         except Exception:
             pass
 
-        for obj in getattr(doc, "Objects", []):
-            try:
-                obj.ViewObject.Visibility = True
-            except Exception:
-                pass
-
         try:
             Gui.updateGui()
         except Exception:
@@ -418,6 +420,7 @@ class FolderWatchAgent:
             "DOC": doc,
             "JOB": job,
             "OUT_DIR": job_out,
+            "PARAMS": dict(job.get("params") or {}),
         }
 
     def _export_outputs(self, doc, job, job_out):
@@ -433,7 +436,7 @@ class FolderWatchAgent:
             doc.saveAs(str(fcstd_path))
             exports["fcstd"] = str(fcstd_path)
 
-        shape_objects = _shape_objects(doc)
+        shape_objects = _shape_objects(doc, visible_only=True)
 
         if export_config.get("step", False) and shape_objects:
             step_path = job_out / "{}.step".format(base_name)
@@ -507,9 +510,12 @@ class FolderWatchAgent:
         }
         method = method_names.get(view_name, "viewIsometric")
         getattr(active_view, method)()
-        active_view.fitAll()
         try:
             Gui.updateGui()
+        except Exception:
+            pass
+        try:
+            active_view.fitAll()
         except Exception:
             pass
         try:
@@ -522,7 +528,7 @@ class FolderWatchAgent:
             self.qtcore.QCoreApplication.processEvents()
         except Exception:
             pass
-        time.sleep(0.1)
+        time.sleep(0.2)
 
     def _write_result(self, job_id, result, running_path):
         job_out = self.out / job_id
