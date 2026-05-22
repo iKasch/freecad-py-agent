@@ -6,6 +6,8 @@ This repository is a local bridge between a coding agent and a running FreeCAD G
 
 When a user asks you to build or modify a FreeCAD model with this repository, first make sure the runtime bridge is available.
 
+Do not submit a FreeCAD job or create test geometry just to verify the bridge. Reading this file, inspecting CLI help, checking folders, and asking the user whether FreeCAD is open are safe readiness checks. Submitting a job changes the user's FreeCAD session and is only allowed after the user asks for a concrete model/change, or after the user explicitly asks you to test the bridge.
+
 Tell the user to do this once in FreeCAD:
 
 1. Open FreeCAD.
@@ -53,6 +55,8 @@ Reuse the same project/session while iterating on the same design. Use a new ses
 ## Normal Job Flow
 
 Run commands from the repository root unless you pass `--root` explicitly.
+
+Only start this flow after the user has described the model/change to build, or has explicitly requested a bridge test.
 
 1. Create or update a normal FreeCAD Python model script.
 2. Submit it:
