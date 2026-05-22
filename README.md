@@ -1,53 +1,53 @@
 # FreeCAD Folder Watch Python Agent
 
-Lokale Bridge zwischen einem Coding-Agenten und FreeCAD. FreeCAD führt einmalig ein Macro aus, beobachtet den `inbox/`-Ordner, führt eingereichte Python-Jobs aus, rendert Screenshots und legt Ergebnisse strukturiert unter `out/` ab.
+Local bridge between a coding agent and FreeCAD. FreeCAD runs one macro, watches the `inbox/` folder, executes submitted Python jobs, renders screenshots, and stores structured results under `out/`.
 
-Der Mensch startet FreeCAD und das Macro. Der Agent schreibt danach Modell-Scripts, reicht Jobs ein, liest `result.json` und Screenshots und iteriert.
+The human starts FreeCAD and the macro. The agent writes model scripts, submits jobs, reads `result.json` and screenshots, and iterates.
 
-## Struktur
+## Structure
 
 ```text
 folder-watch-py-agent/
-  freecad_folder_watch_agent.FCMacro  # FreeCAD-seitiger Folder-Watcher
-  agent_submit.py                     # schreibt Jobs nach inbox/
-  agent_data.py                       # listet und räumt Output-Daten auf
-  AGENTS.md                           # operative Anleitung für Agents
-  examples/                           # getrackte Beispielmodelle
-  models/                             # lokale Modell-Scripts, git-ignored
-  inbox/                              # Job-Eingang
-  out/                                # Ergebnisse pro Projekt/Session
-  logs/                               # Macro-Log
+  freecad_folder_watch_agent.FCMacro  # FreeCAD-side folder watcher
+  agent_submit.py                     # submits jobs to inbox/
+  agent_data.py                       # lists and cleans output data
+  AGENTS.md                           # operational runbook for agents
+  examples/                           # tracked example models
+  models/                             # local model scripts, git-ignored
+  inbox/                              # incoming jobs
+  out/                                # results by project/session
+  logs/                               # macro log
 ```
 
 ## Installation
 
-Alle Befehle werden aus dem Repository-Ordner ausgeführt.
+Run this from the repository root:
 
 ```bash
 python3 install_macro_symlink.py
 ```
 
-Dann FreeCAD öffnen und das Macro starten:
+Then open FreeCAD and start the macro:
 
 ```text
 Macro > Macros... > freecad_folder_watch_agent.FCMacro > Execute
 ```
 
-FreeCAD muss offen bleiben. Nach Änderungen an `freecad_folder_watch_agent.FCMacro` das Macro erneut ausführen.
+Keep FreeCAD open while the agent works. After changing `freecad_folder_watch_agent.FCMacro`, run the macro again in FreeCAD.
 
-## Nutzung mit Agents
+## Agent Usage
 
-Agents sollen zuerst `AGENTS.md` lesen. Dort steht das eigentliche Runbook: wann gefragt werden muss, wie Projekt und Session gewählt werden, wann Jobs eingereicht werden dürfen und wie Ergebnisse geprüft werden.
+Agents should read `AGENTS.md` first. It is the operational runbook: when to ask the user, how to choose project/session names, when jobs may be submitted, and how results should be checked.
 
-Kurzfassung:
+Short flow:
 
-1. Nutzer startet FreeCAD und das Macro.
-2. Agent klärt Projektname und Session, zum Beispiel `smart-convert-case` und `default` oder `exploded`.
-3. Agent legt lokale Modell-Scripts unter `models/` ab.
-4. Agent reicht Jobs mit `agent_submit.py` ein.
-5. Agent liest den aktuellen Stand unter `out/projects/<project>/sessions/<session>/current/`.
+1. User starts FreeCAD and the macro.
+2. Agent establishes a project and session, for example `smart-convert-case` and `default` or `exploded`.
+3. Agent stores local model scripts under `models/`.
+4. Agent submits jobs with `agent_submit.py`.
+5. Agent reads the current state from `out/projects/<project>/sessions/<session>/current/`.
 
-Beispiel:
+Example:
 
 ```bash
 python3 agent_submit.py models/model.py \
@@ -57,7 +57,7 @@ python3 agent_submit.py models/model.py \
   --step
 ```
 
-Wichtige Outputs:
+Important outputs:
 
 ```text
 out/projects/<project>/sessions/<session>/current/result.json
@@ -65,51 +65,53 @@ out/projects/<project>/sessions/<session>/current/views/iso.png
 out/projects/<project>/sessions/<session>/runs/
 ```
 
-## Sessions und Projekte
+## Projects And Sessions
 
-Ein Projekt ist das übergeordnete Modell oder Vorhaben. Eine Session ist eine Ansicht, Variante oder Arbeitsrichtung innerhalb dieses Projekts.
+A project is the overall model or task. A session is one view, variant, or work direction inside that project.
 
-Beispiele:
+Example:
 
 ```text
 project: smart-convert-case
 sessions:
-  default   # zusammengebautes Modell
-  exploded  # Exploded View
+  default   # assembled model
+  exploded  # exploded view
 ```
 
-Jobs in derselben Projekt/Session-Kombination verwenden dasselbe FreeCAD-Agent-Dokument wieder. Andere Sessions bleiben getrennt.
+Jobs with the same project/session pair reuse the same FreeCAD agent document. Different sessions stay separate.
 
-## Datenmanagement
+## Data Management
+
+Inspect stored data:
 
 ```bash
 python3 agent_data.py list
 python3 agent_data.py stats
 ```
 
-Aufräumen ist standardmäßig ein Dry-run:
+Cleanup commands are dry-runs by default:
 
 ```bash
 python3 agent_data.py prune --project smart-convert-case --session default --keep-runs 20
 python3 agent_data.py compact --older-than 14d --keep-runs 10
 ```
 
-Erst mit `--apply` wird gelöscht:
+Add `--apply` to actually delete files:
 
 ```bash
 python3 agent_data.py prune --project smart-convert-case --session default --keep-runs 20 --apply
 ```
 
-## Wichtige Optionen
+## Important Options
 
-- `--project NAME`: Projektordner und Teil der FreeCAD-Session-Identität.
-- `--session NAME`: wiederverwendete Session innerhalb eines Projekts.
-- `--mode rebuild|update`: `rebuild` baut neu auf, `update` behält vorhandene Objekte.
-- `--views iso,front,right,top,bottom`: zu rendernde Screenshots.
-- `--param KEY=VALUE`: Parameter an das Modell-Script übergeben.
-- `--params-file PATH`: Parameter als JSON-Datei übergeben.
-- `--step`: zusätzlich STEP exportieren.
-- `--stl`: zusätzlich STL exportieren.
-- `--no-fcstd`: keine FreeCAD-Datei speichern.
+- `--project NAME`: project folder and part of the FreeCAD session identity.
+- `--session NAME`: reused session inside a project.
+- `--mode rebuild|update`: `rebuild` starts fresh, `update` keeps existing objects.
+- `--views iso,front,right,top,bottom`: screenshots to render.
+- `--param KEY=VALUE`: pass one parameter to the model script.
+- `--params-file PATH`: pass parameters from a JSON file.
+- `--step`: export STEP.
+- `--stl`: export STL.
+- `--no-fcstd`: do not save a FreeCAD file.
 
-Lokale, konkrete Projektmodelle gehören nach `models/`; dieser Ordner ist absichtlich nicht getrackt. Getrackte, allgemein nützliche Beispiele gehören nach `examples/`.
+Concrete local project models belong in `models/`; this folder is intentionally not tracked. Tracked, generally useful examples belong in `examples/`.
