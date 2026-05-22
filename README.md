@@ -34,6 +34,41 @@ exec(open("/Users/kim.schneider/Development/private/freecad/macros/folder-watch-
 
 Die Macro laeuft danach per `QTimer` weiter, solange FreeCAD offen ist. Ein erneutes Ausfuehren startet sie sauber neu.
 
+## Agent Quickstart
+
+Dieses Tool ist fuer Coding-Agenten gebaut. Ein Mensch startet in der Regel nur FreeCAD und die Macro; danach soll der Agent Jobs selbst einreichen, Ergebnisse lesen und iterieren.
+
+Agenten sollten diesen Ablauf verwenden:
+
+1. Einen stabilen Projektnamen fuer die Nutzeraufgabe waehlen, zum Beispiel `desk-organizer`, `lamp-concept` oder `mounting-bracket`.
+2. Eine stabile Session fuer den aktuellen Entwurf waehlen, zum Beispiel `concept-a`, `variant-b` oder `default`.
+3. Ein normales FreeCAD-Python-Script schreiben oder aktualisieren.
+4. Den Job mit `agent_submit.py` einreichen:
+
+```bash
+python3 agent_submit.py /abs/path/to/model.py \
+  --project <project> \
+  --session <session> \
+  --title <short-run-title> \
+  --step
+```
+
+5. Auf `out/projects/<project>/sessions/<session>/current/result.json` warten.
+6. Bei `status: "ok"` zuerst `current/views/iso.png` visuell pruefen, danach bei Bedarf `front.png`, `right.png`, `top.png`, Bounding Boxes und Volumen im `result.json`.
+7. Bei `status: "error"` `error` und `traceback` aus `current/result.json` lesen, das Script korrigieren und erneut einreichen.
+8. Fuer Iteration dieselbe Projekt/Session-Kombination wiederverwenden. Fuer echte Alternativen neue Sessions nutzen.
+
+Agent-Regeln:
+
+- Standardmaessig immer `--project` und `--session` setzen.
+- `--use-active-document` nur verwenden, wenn der Nutzer explizit das aktuell aktive FreeCAD-Dokument bearbeiten will.
+- `--new-document` nur verwenden, wenn der Nutzer explizit pro Run ein neues FreeCAD-Dokument will.
+- Fuer normale agentische Iteration in einer Session `--mode rebuild` nutzen, wenn das Script das Modell komplett neu aufbaut.
+- `--mode update` nur nutzen, wenn das Script vorhandene FreeCAD-Objekte stabil per Name wiederfindet und aktualisiert.
+- Nicht aus `runs/` raten, wenn `current/` verfuegbar ist. `current/` ist der stabile Einstiegspunkt fuer den letzten Stand.
+- Cleanup-Befehle zuerst ohne `--apply` ausfuehren. `--apply` nur verwenden, wenn der Nutzer Loeschen bestaetigt hat.
+- Nach Aenderungen an `freecad_folder_watch_agent.FCMacro` den Nutzer bitten, die Macro in FreeCAD neu zu starten.
+
 ## Job einreichen
 
 Aus einem Terminal:
