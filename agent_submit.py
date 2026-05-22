@@ -70,6 +70,11 @@ def parse_args():
     parser.add_argument("--id", dest="job_id", help="Optional stable job id")
     parser.add_argument("--title", help="Optional document/output title")
     parser.add_argument(
+        "--project",
+        default="default",
+        help="Reusable output project name. Defaults to 'default'.",
+    )
+    parser.add_argument(
         "--session",
         default="default",
         help="Reusable FreeCAD agent document/session name. Defaults to 'default'.",
@@ -142,6 +147,7 @@ def main():
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     base = safe_name(args.title or source_script.stem)
     job_id = safe_name(args.job_id or "{}-{}".format(timestamp, base))
+    project = safe_name(args.project)
     session = safe_name(args.session)
     target_document = "session"
     if args.use_active_document:
@@ -161,12 +167,13 @@ def main():
 
     job = {
         "id": job_id,
+        "project": project,
         "session": session,
         "params": params,
         "mode": args.mode,
         "script_path": str(copied_script),
-        "document_name": safe_name("Agent_{}".format(session)),
-        "document_label": "Agent {}".format(session),
+        "document_name": safe_name("Agent_{}_{}".format(project, session)),
+        "document_label": "Agent {} / {}".format(project, session),
         "job_title": args.title or base,
         "output_name": safe_name(args.title or job_id),
         "reset_document": False,
@@ -188,7 +195,19 @@ def main():
 
     print("submitted {}".format(job_id))
     print("job: {}".format(job_path))
-    print("result: {}".format(root / "out" / job_id / "result.json"))
+    print(
+        "current result: {}".format(
+            root
+            / "out"
+            / "projects"
+            / project
+            / "sessions"
+            / session
+            / "current"
+            / "result.json"
+        )
+    )
+    print("latest result: {}".format(root / "out" / "latest_result.json"))
 
 
 if __name__ == "__main__":

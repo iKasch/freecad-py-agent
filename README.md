@@ -8,9 +8,10 @@ Kleine lokale Bridge zwischen einem Coding-Agenten und FreeCAD. FreeCAD fuehrt e
 folder-watch-py-agent/
   freecad_folder_watch_agent.FCMacro  # einmal in FreeCAD starten
   agent_submit.py                     # schreibt Jobs nach inbox/
+  agent_data.py                       # listet/raeumt Output-Daten auf
   examples/perforated_plate.py        # Beispielmodell
   inbox/                              # Job-Eingang
-  out/                                # Ergebnisse pro Job
+  out/                                # Ergebnisse pro Projekt/Session
   logs/                               # Macro-Log
 ```
 
@@ -33,6 +34,12 @@ exec(open("/Users/kim.schneider/Development/private/freecad/macros/folder-watch-
 
 Die Macro laeuft danach per `QTimer` weiter, solange FreeCAD offen ist. Ein erneutes Ausfuehren startet sie sauber neu.
 
+## Nutzung mit Agents
+
+Dieses Tool ist fuer Coding-Agenten gebaut. Ein Mensch startet in der Regel nur FreeCAD und die Macro; danach reicht der Agent Jobs ein, liest Ergebnisse und iteriert anhand der Screenshots und Metadaten.
+
+Die operativen Agent-Anweisungen stehen in `AGENTS.md`. Ein Agent, der in diesem Repository arbeitet, sollte diese Datei zuerst lesen und danach `agent_submit.py` und `agent_data.py` verwenden.
+
 ## Job einreichen
 
 Aus einem Terminal:
@@ -45,17 +52,28 @@ python3 agent_submit.py examples/perforated_plate.py --step
 FreeCAD verarbeitet den Job automatisch. Das Ergebnis liegt danach unter:
 
 ```text
-out/<job-id>/
-  result.json
-  <output>.FCStd
-  <output>.step      # wenn --step gesetzt wurde
-  views/iso.png
-  views/front.png
-  views/right.png
-  views/top.png
+out/projects/default/sessions/default/
+  session.json
+  index.jsonl
+  latest_result.json
+  current/
+    result.json
+    job.json
+    <output>.FCStd
+    <output>.step      # wenn --step gesetzt wurde
+    views/iso.png
+    views/front.png
+    views/right.png
+    views/top.png
+  runs/
+    000001-<timestamp>-<title>/
+      result.json
+      job.json
+      <output>.FCStd
+      views/
 ```
 
-`out/latest_result.json` zeigt immer auf den zuletzt verarbeiteten Jobstatus.
+`out/latest_result.json` zeigt immer auf den zuletzt verarbeiteten Jobstatus ueber alle Projekte hinweg. Fuer Agenten ist meistens `current/result.json` und `current/views/iso.png` der stabile Einstiegspunkt.
 
 ## Parametrische Iteration
 
@@ -70,6 +88,7 @@ Einzelne Parameter direkt uebergeben:
 
 ```bash
 python3 agent_submit.py examples/parametric_mounting_plate.py \
+  --project workshop-bracket \
   --session default \
   --title parametric-plate-wide \
   --param plate_width=150 \
@@ -91,6 +110,7 @@ Oder Parameter als JSON-Datei:
 
 ```bash
 python3 agent_submit.py examples/parametric_mounting_plate.py \
+  --project workshop-bracket \
   --session default \
   --params-file params.json \
   --step
@@ -106,6 +126,7 @@ History-/Update-Test:
 
 ```bash
 python3 agent_submit.py examples/history_mounting_plate.py \
+  --project workshop-bracket \
   --session history-test \
   --mode update \
   --param plate_width=110 \
@@ -113,6 +134,7 @@ python3 agent_submit.py examples/history_mounting_plate.py \
   --step
 
 python3 agent_submit.py examples/history_mounting_plate.py \
+  --project workshop-bracket \
   --session history-test \
   --mode update \
   --param plate_width=160 \
@@ -123,36 +145,50 @@ python3 agent_submit.py examples/history_mounting_plate.py \
 
 Beim ersten Lauf erstellt das Script eine stabile Objektkette (`Parameters`, `plate_base`, `hole_cutter_*`, `plate_cut_*`, `left_rail`, `right_rail`). Beim zweiten Lauf bleibt diese Objektkette erhalten und wird ueber Parameterwerte aktualisiert.
 
-## Workflow fuer Agenten
-
-1. Modell-Script als normale FreeCAD-Python-Datei schreiben, zum Beispiel `model.py`.
-2. Sicherstellen, dass die FreeCAD-GUI offen ist und `freecad_folder_watch_agent.FCMacro` laeuft.
-3. Job in die wiederverwendete Agent-Session einreichen:
-
-```bash
-cd /Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent
-python3 agent_submit.py /abs/path/to/model.py --session default --title my-model --step
-```
-
-4. Auf das Ergebnis warten und `out/latest_result.json` lesen.
-5. Bei `status: "ok"` die Screenshots unter `out/<job-id>/views/` ansehen.
-6. Bei `status: "error"` `error` und `traceback` aus `result.json` verwenden.
-7. Modell-Script anpassen und erneut mit `agent_submit.py` einreichen.
-
-Fuer visuelle Iteration ist meistens `views/iso.png` der erste Check. Fuer technische Kontrolle liefert `result.json` zusaetzlich Objektliste, Bounding Boxes, Flaechen und Volumina.
-
-Standardmaessig verwendet jeder Job die Session `default`. FreeCAD erstellt dafuer einmal ein Dokument mit dem sichtbaren Label `Agent default`; weitere Jobs in derselben Session leeren nur dieses Agent-Dokument und befuellen es neu. Bereits offene Nicht-Agent-Dokumente bleiben offen und unveraendert.
+Standardmaessig verwendet jeder Job das Projekt `default` und die Session `default`. FreeCAD erstellt dafuer einmal ein Dokument mit dem sichtbaren Label `Agent default`; weitere Jobs in derselben Projekt/Session-Kombination leeren nur dieses Agent-Dokument und befuellen es neu. Bereits offene Nicht-Agent-Dokumente bleiben offen und unveraendert.
 
 Mehrere parallele Entwuerfe laufen ueber verschiedene Sessions:
 
 ```bash
-python3 agent_submit.py model.py --session desk-organizer
-python3 agent_submit.py model.py --session lamp-concept
+python3 agent_submit.py model.py --project office-tools --session desk-organizer
+python3 agent_submit.py model.py --project lighting --session lamp-concept
 ```
 
 Nur mit `--use-active-document` wird absichtlich in das aktuell aktive FreeCAD-Dokument geschrieben. Nur mit `--new-document` wird fuer jeden Job ein frisches neues Dokument erstellt.
 
-Wichtig: Nach Updates an `freecad_folder_watch_agent.FCMacro` die Macro in FreeCAD erneut ausfuehren. In `result.json` sollte `agent_version` stehen; fuer den aktuellen parametrischen Update-Workflow mindestens `0.5.3-fit-visible-view`.
+Wichtig: Nach Updates an `freecad_folder_watch_agent.FCMacro` die Macro in FreeCAD erneut ausfuehren. In `result.json` sollte `agent_version` stehen; fuer das Projekt/Session-Output-Layout mindestens `0.6.0-session-output-management`.
+
+## Datenmanagement
+
+Neue Jobs werden unter `out/projects/<project>/sessions/<session>/` abgelegt. Jede Iteration bleibt als Run in `runs/` erhalten, waehrend `current/` immer den zuletzt verarbeiteten Stand dieser Session enthaelt. `index.jsonl` ist ein append-only Verlauf fuer Agenten und Tools.
+
+Uebersicht:
+
+```bash
+python3 agent_data.py list
+python3 agent_data.py stats
+```
+
+Alte Runs aufraeumen. Ohne `--apply` ist das immer nur ein Dry-run:
+
+```bash
+python3 agent_data.py prune --project workshop-bracket --session history-test --keep-runs 20
+python3 agent_data.py prune --older-than 14d --keep-runs 10 --apply
+```
+
+Nur schwere Exportdateien aus alten Runs entfernen, aber JSON und Screenshots behalten:
+
+```bash
+python3 agent_data.py compact --older-than 14d --keep-runs 10
+python3 agent_data.py compact --older-than 14d --keep-runs 10 --apply
+```
+
+Wichtige Runs koennen vor Cleanup geschuetzt werden:
+
+```bash
+python3 agent_data.py pin workshop-bracket history-test 000004-20260522-170000-good-version
+python3 agent_data.py unpin workshop-bracket history-test 000004-20260522-170000-good-version
+```
 
 ## Modell-Scripts
 
@@ -181,6 +217,7 @@ DOC.recompute()
 
 ```bash
 python3 agent_submit.py model.py \
+  --project desk \
   --session desk-organizer \
   --title desk-organizer \
   --views iso,front,right,top \
@@ -193,6 +230,7 @@ python3 agent_submit.py model.py \
 Wichtige Flags:
 
 - `--session NAME`: wiederverwendetes Agent-Dokument fuer iterative Arbeit, Default `default`.
+- `--project NAME`: Output-Projekt und Teil der FreeCAD-Session-Identitaet, Default `default`.
 - `--mode rebuild|update`: `rebuild` leert die Session vor dem Script, `update` behaelt vorhandene Objekte fuer historiebasierte Scripts.
 - `--use-active-document`: absichtlich in das aktuell aktive FreeCAD-Dokument schreiben.
 - `--new-document`: fuer diesen Job ein frisches neues Dokument erstellen.
