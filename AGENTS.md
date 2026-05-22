@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This repository is a local bridge between a coding agent and a running FreeCAD GUI. The human starts FreeCAD and the macro; the agent writes FreeCAD Python scripts, submits jobs, reads screenshots/results, and iterates.
+This repository is a local bridge between a coding agent and a running FreeCAD GUI. The human installs one FreeCAD macro wrapper and starts it; the agent works from the generated workspace, writes FreeCAD Python scripts, submits jobs, reads screenshots/results, and iterates.
 
 ## First Response To A User
 
@@ -11,20 +11,26 @@ Do not submit a FreeCAD job or create test geometry just to verify the bridge. R
 Tell the user to do this once in FreeCAD:
 
 1. Open FreeCAD.
-2. Run `Macro > Macros... > freecad_folder_watch_agent.FCMacro > Execute`.
+2. Run `Macro > Macros... > freecad_agent.FCMacro > Execute`.
 3. Keep FreeCAD open while you work.
 
 If the macro is not installed in FreeCAD yet, tell the user to run this from the repository first:
 
 ```bash
-python3 install_macro_symlink.py
+python3 setup_freecad_agent.py
 ```
 
-After changes to `freecad_folder_watch_agent.FCMacro`, tell the user to run the macro again in FreeCAD.
+After changes to `freecad_folder_watch_agent.FCMacro`, tell the user to run `freecad_agent.FCMacro` again in FreeCAD.
 
 ## Working Model
 
-Use these files:
+Use the generated workspace for normal modeling work. The default workspace is `~/FreeCADAgent`, but the user may choose another path with `setup_freecad_agent.py --workspace <path>`.
+
+Do not ask the user to set this repository as FreeCAD's macro folder. The setup script installs one generated FreeCAD macro wrapper named `freecad_agent.FCMacro`; that is the only macro the user needs to run in FreeCAD.
+
+In the source repository, `setup_freecad_agent.py` creates the workspace and installs the FreeCAD macro wrapper.
+
+In the generated workspace, use these files:
 
 - `agent_submit.py`: submit a model script to the running FreeCAD macro.
 - `agent_data.py`: inspect and clean output data.
