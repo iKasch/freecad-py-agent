@@ -1,256 +1,117 @@
 # FreeCAD Folder Watch Python Agent
 
-Kleine lokale Bridge zwischen einem Coding-Agenten und FreeCAD. FreeCAD fuehrt eine einmal gestartete Macro aus, beobachtet `inbox/`, laedt Python-Jobs in ein wiederverwendetes Agent-Session-Dokument, rendert Screenshots aus der GUI und legt Ergebnisse in `out/` ab.
+Local bridge between a coding agent and FreeCAD. FreeCAD runs one macro, watches the `inbox/` folder, executes submitted Python jobs, renders screenshots, and stores structured results under `out/`.
 
-## Struktur
+The human starts FreeCAD and the macro. The agent writes model scripts, submits jobs, reads `result.json` and screenshots, and iterates.
+
+## Structure
 
 ```text
 folder-watch-py-agent/
-  freecad_folder_watch_agent.FCMacro  # einmal in FreeCAD starten
-  agent_submit.py                     # schreibt Jobs nach inbox/
-  agent_data.py                       # listet/raeumt Output-Daten auf
-  examples/perforated_plate.py        # Beispielmodell
-  inbox/                              # Job-Eingang
-  out/                                # Ergebnisse pro Projekt/Session
-  logs/                               # Macro-Log
+  freecad_folder_watch_agent.FCMacro  # FreeCAD-side folder watcher
+  agent_submit.py                     # submits jobs to inbox/
+  agent_data.py                       # lists and cleans output data
+  AGENTS.md                           # operational runbook for agents
+  examples/                           # tracked example models
+  models/                             # local model scripts, git-ignored
+  inbox/                              # incoming jobs
+  out/                                # results by project/session
+  logs/                               # macro log
 ```
 
-## Einmal in FreeCAD starten
+## Installation
 
-Option A, bequem ueber FreeCADs Macro-Menue:
+Run this from the repository root:
 
 ```bash
-cd /Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent
 python3 install_macro_symlink.py
 ```
 
-Danach FreeCAD GUI oeffnen und `Macro > Macros... > freecad_folder_watch_agent.FCMacro > Execute` waehlen.
-
-Option B, ohne Installation, einmal in der FreeCAD Python Console ausfuehren:
+Then open FreeCAD and start the macro:
 
 ```text
-exec(open("/Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent/freecad_folder_watch_agent.FCMacro", encoding="utf-8").read())
+Macro > Macros... > freecad_folder_watch_agent.FCMacro > Execute
 ```
 
-Die Macro laeuft danach per `QTimer` weiter, solange FreeCAD offen ist. Ein erneutes Ausfuehren startet sie sauber neu.
+Keep FreeCAD open while the agent works. After changing `freecad_folder_watch_agent.FCMacro`, run the macro again in FreeCAD.
 
-## Nutzung mit Agents
+## Agent Usage
 
-Dieses Tool ist fuer Coding-Agenten gebaut. Ein Mensch startet in der Regel nur FreeCAD und die Macro; danach reicht der Agent Jobs ein, liest Ergebnisse und iteriert anhand der Screenshots und Metadaten.
+Agents should read `AGENTS.md` first. It is the operational runbook: when to ask the user, how to choose project/session names, when jobs may be submitted, and how results should be checked.
 
-Die operativen Agent-Anweisungen stehen in `AGENTS.md`. Ein Agent, der in diesem Repository arbeitet, sollte diese Datei zuerst lesen und danach `agent_submit.py` und `agent_data.py` verwenden.
+Short flow:
 
-## Job einreichen
+1. User starts FreeCAD and the macro.
+2. Agent establishes a project and session, for example `smart-convert-case` and `default` or `exploded`.
+3. Agent stores local model scripts under `models/`.
+4. Agent submits jobs with `agent_submit.py`.
+5. Agent reads the current state from `out/projects/<project>/sessions/<session>/current/`.
 
-Aus einem Terminal:
+Example:
 
 ```bash
-cd /Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent
-python3 agent_submit.py examples/perforated_plate.py --step
+python3 agent_submit.py models/model.py \
+  --project smart-convert-case \
+  --session default \
+  --title first-pass \
+  --step
 ```
 
-FreeCAD verarbeitet den Job automatisch. Das Ergebnis liegt danach unter:
+Important outputs:
 
 ```text
-out/projects/default/sessions/default/
-  session.json
-  index.jsonl
-  latest_result.json
-  current/
-    result.json
-    job.json
-    <output>.FCStd
-    <output>.step      # wenn --step gesetzt wurde
-    views/iso.png
-    views/front.png
-    views/right.png
-    views/top.png
-  runs/
-    000001-<timestamp>-<title>/
-      result.json
-      job.json
-      <output>.FCStd
-      views/
+out/projects/<project>/sessions/<session>/current/result.json
+out/projects/<project>/sessions/<session>/current/views/iso.png
+out/projects/<project>/sessions/<session>/runs/
 ```
 
-`out/latest_result.json` zeigt immer auf den zuletzt verarbeiteten Jobstatus ueber alle Projekte hinweg. Fuer Agenten ist meistens `current/result.json` und `current/views/iso.png` der stabile Einstiegspunkt.
+## Projects And Sessions
 
-## Parametrische Iteration
+A project is the overall model or task. A session is one view, variant, or work direction inside that project.
 
-Variante B bedeutet hier: Das Modell-Script liest stabile Parameter aus `PARAMS`, baut daraus reproduzierbar dieselben stabil benannten Objekte und wird in derselben Agent-Session neu berechnet. Dadurch veraendert der Agent nicht manuell beliebige FreeCAD-History, sondern iteriert ueber explizite Parameter.
+Example:
 
-Es gibt zwei Modi:
-
-- `--mode rebuild`: Default. Das Session-Dokument wird vor dem Script geleert.
-- `--mode update`: Das Session-Dokument bleibt erhalten. Das Script muss vorhandene Objekte selbst finden und aktualisieren.
-
-Einzelne Parameter direkt uebergeben:
-
-```bash
-python3 agent_submit.py examples/parametric_mounting_plate.py \
-  --project workshop-bracket \
-  --session default \
-  --title parametric-plate-wide \
-  --param plate_width=150 \
-  --param hole_count=5 \
-  --param hole_diameter=11 \
-  --step
+```text
+project: smart-convert-case
+sessions:
+  default   # assembled model
+  exploded  # exploded view
 ```
 
-Oder Parameter als JSON-Datei:
+Jobs with the same project/session pair reuse the same FreeCAD agent document. Different sessions stay separate.
 
-```json
-{
-  "plate_width": 150,
-  "plate_depth": 70,
-  "hole_count": 5,
-  "rail_height": 16
-}
-```
+## Data Management
 
-```bash
-python3 agent_submit.py examples/parametric_mounting_plate.py \
-  --project workshop-bracket \
-  --session default \
-  --params-file params.json \
-  --step
-```
-
-Im Modell-Script stehen die Werte als `PARAMS` bereit:
-
-```python
-params = {"plate_width": 110, **PARAMS}
-```
-
-History-/Update-Test:
-
-```bash
-python3 agent_submit.py examples/history_mounting_plate.py \
-  --project workshop-bracket \
-  --session history-test \
-  --mode update \
-  --param plate_width=110 \
-  --param hole_count=4 \
-  --step
-
-python3 agent_submit.py examples/history_mounting_plate.py \
-  --project workshop-bracket \
-  --session history-test \
-  --mode update \
-  --param plate_width=160 \
-  --param hole_count=6 \
-  --param rail_height=20 \
-  --step
-```
-
-Beim ersten Lauf erstellt das Script eine stabile Objektkette (`Parameters`, `plate_base`, `hole_cutter_*`, `plate_cut_*`, `left_rail`, `right_rail`). Beim zweiten Lauf bleibt diese Objektkette erhalten und wird ueber Parameterwerte aktualisiert.
-
-Standardmaessig verwendet jeder Job das Projekt `default` und die Session `default`. FreeCAD erstellt dafuer einmal ein Dokument mit dem sichtbaren Label `Agent default`; weitere Jobs in derselben Projekt/Session-Kombination leeren nur dieses Agent-Dokument und befuellen es neu. Bereits offene Nicht-Agent-Dokumente bleiben offen und unveraendert.
-
-Mehrere parallele Entwuerfe laufen ueber verschiedene Sessions:
-
-```bash
-python3 agent_submit.py model.py --project office-tools --session desk-organizer
-python3 agent_submit.py model.py --project lighting --session lamp-concept
-```
-
-Nur mit `--use-active-document` wird absichtlich in das aktuell aktive FreeCAD-Dokument geschrieben. Nur mit `--new-document` wird fuer jeden Job ein frisches neues Dokument erstellt.
-
-Wichtig: Nach Updates an `freecad_folder_watch_agent.FCMacro` die Macro in FreeCAD erneut ausfuehren. In `result.json` sollte `agent_version` stehen; fuer das Projekt/Session-Output-Layout mindestens `0.6.0-session-output-management`.
-
-## Datenmanagement
-
-Neue Jobs werden unter `out/projects/<project>/sessions/<session>/` abgelegt. Jede Iteration bleibt als Run in `runs/` erhalten, waehrend `current/` immer den zuletzt verarbeiteten Stand dieser Session enthaelt. `index.jsonl` ist ein append-only Verlauf fuer Agenten und Tools.
-
-Uebersicht:
+Inspect stored data:
 
 ```bash
 python3 agent_data.py list
 python3 agent_data.py stats
 ```
 
-Alte Runs aufraeumen. Ohne `--apply` ist das immer nur ein Dry-run:
+Cleanup commands are dry-runs by default:
 
 ```bash
-python3 agent_data.py prune --project workshop-bracket --session history-test --keep-runs 20
-python3 agent_data.py prune --older-than 14d --keep-runs 10 --apply
-```
-
-Nur schwere Exportdateien aus alten Runs entfernen, aber JSON und Screenshots behalten:
-
-```bash
+python3 agent_data.py prune --project smart-convert-case --session default --keep-runs 20
 python3 agent_data.py compact --older-than 14d --keep-runs 10
-python3 agent_data.py compact --older-than 14d --keep-runs 10 --apply
 ```
 
-Wichtige Runs koennen vor Cleanup geschuetzt werden:
+Add `--apply` to actually delete files:
 
 ```bash
-python3 agent_data.py pin workshop-bracket history-test 000004-20260522-170000-good-version
-python3 agent_data.py unpin workshop-bracket history-test 000004-20260522-170000-good-version
+python3 agent_data.py prune --project smart-convert-case --session default --keep-runs 20 --apply
 ```
 
-## Modell-Scripts
+## Important Options
 
-Ein Job-Script ist normales FreeCAD-Python. Die Macro stellt diese Variablen bereit:
+- `--project NAME`: project folder and part of the FreeCAD session identity.
+- `--session NAME`: reused session inside a project.
+- `--mode rebuild|update`: `rebuild` starts fresh, `update` keeps existing objects.
+- `--views iso,front,right,top,bottom`: screenshots to render.
+- `--param KEY=VALUE`: pass one parameter to the model script.
+- `--params-file PATH`: pass parameters from a JSON file.
+- `--step`: export STEP.
+- `--stl`: export STL.
+- `--no-fcstd`: do not save a FreeCAD file.
 
-```python
-App      # FreeCAD module
-Gui      # FreeCADGui module, wenn in der GUI verfuegbar
-DOC      # aktives Dokument
-JOB      # Job-Dictionary aus der JSON-Datei
-OUT_DIR  # Ausgabeordner fuer diesen Job
-PARAMS   # Parameter-Dictionary aus --param und --params-file
-```
-
-Minimalbeispiel:
-
-```python
-import Part
-
-box = DOC.addObject("Part::Feature", "box")
-box.Shape = Part.makeBox(20, 20, 10)
-DOC.recompute()
-```
-
-## Optionen
-
-```bash
-python3 agent_submit.py model.py \
-  --project desk \
-  --session desk-organizer \
-  --title desk-organizer \
-  --views iso,front,right,top \
-  --width 1600 \
-  --height 1200 \
-  --step \
-  --stl
-```
-
-Wichtige Flags:
-
-- `--session NAME`: wiederverwendetes Agent-Dokument fuer iterative Arbeit, Default `default`.
-- `--project NAME`: Output-Projekt und Teil der FreeCAD-Session-Identitaet, Default `default`.
-- `--mode rebuild|update`: `rebuild` leert die Session vor dem Script, `update` behaelt vorhandene Objekte fuer historiebasierte Scripts.
-- `--use-active-document`: absichtlich in das aktuell aktive FreeCAD-Dokument schreiben.
-- `--new-document`: fuer diesen Job ein frisches neues Dokument erstellen.
-- `--restore-active-document`: nach Screenshot/Export zum vorher aktiven FreeCAD-Dokument zurueckwechseln.
-- `--params-file PATH`: JSON-Datei mit Parametern fuer das Script.
-- `--param KEY=VALUE`: einzelnen Parameter setzen oder ueberschreiben; `VALUE` wird als JSON geparst, wenn moeglich.
-- `--step`: zusaetzlich STEP exportieren.
-- `--stl`: zusaetzlich STL exportieren.
-- `--no-fcstd`: keine `.FCStd` speichern.
-
-## Sicherheitsmodell
-
-Diese Bridge fuehrt lokale Python-Scripts in FreeCAD aus. Das ist absichtlich maechtig und sollte nur mit einem festen lokalen Ordner benutzt werden. Keine fremden Scripts in `inbox/` legen.
-
-## Stoppen
-
-In der FreeCAD Python Console:
-
-```python
-App._folder_watch_agent.stop()
-```
-
-Zum Starten die Macro erneut ausfuehren.
+Concrete local project models belong in `models/`; this folder is intentionally not tracked. Tracked, generally useful examples belong in `examples/`.

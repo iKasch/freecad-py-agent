@@ -20,12 +20,6 @@ If the macro is not installed in FreeCAD yet, tell the user to run this from the
 python3 install_macro_symlink.py
 ```
 
-Alternatively, they can paste this into the FreeCAD Python console:
-
-```python
-exec(open("/absolute/path/to/folder-watch-py-agent/freecad_folder_watch_agent.FCMacro", encoding="utf-8").read())
-```
-
 After changes to `freecad_folder_watch_agent.FCMacro`, tell the user to run the macro again in FreeCAD.
 
 ## Working Model
@@ -36,6 +30,7 @@ Use these files:
 - `agent_data.py`: inspect and clean output data.
 - `freecad_folder_watch_agent.FCMacro`: the FreeCAD-side folder watcher.
 - `examples/`: reference model scripts.
+- `models/`: optional local model scripts for concrete projects; ignored by git.
 - `out/projects/<project>/sessions/<session>/current/`: current output for one project/session.
 - `out/projects/<project>/sessions/<session>/runs/`: historical runs for one project/session.
 
@@ -45,12 +40,16 @@ Do not write job files directly into `inbox/`. Use `agent_submit.py`; it copies 
 
 Always submit jobs with explicit `--project` and `--session`.
 
+Before the first submit in a conversation, establish the project/session target. If the user has not named a project, ask for a project name. Do not silently use `default` just because it is the CLI default.
+
 Choose names like this:
 
 - `--project`: stable slug for the user's overall task, product, or model family, for example `desk-organizer` or `mounting-bracket`.
-- `--session`: stable slug for the current design branch, for example `default`, `concept-a`, or `variant-b`.
+- `--session`: stable slug for the current view, design branch, or representation, for example `default`, `exploded`, `concept-a`, or `variant-b`.
 
-Reuse the same project/session while iterating on the same design. Use a new session for a real alternative that should stay separate.
+Use `agent_data.py list` to inspect existing project/session folders before choosing a target. If the intended project already has sessions, continue the matching session instead of creating or overwriting another one. If the user wants another view of the same model, use the same project and a different session, for example `default` for the assembled model and `exploded` for an exploded view.
+
+Reuse the same project/session while iterating on the same view or design branch. Use a new session for a real alternative or representation that should stay separate. If it is unclear whether the next job should update `default`, `exploded`, or another existing session, ask the user before submitting.
 
 ## Normal Job Flow
 
@@ -62,7 +61,7 @@ Only start this flow after the user has described the model/change to build, or 
 2. Submit it:
 
 ```bash
-python3 agent_submit.py /abs/path/to/model.py \
+python3 agent_submit.py models/model.py \
   --project <project> \
   --session <session> \
   --title <short-run-title> \
@@ -117,6 +116,8 @@ PARAMS   # dict from --param and --params-file
 ```
 
 Prefer explicit, stable object names. Keep scripts deterministic from their inputs. Use `PARAMS` for dimensions and configuration that should change across iterations.
+
+Concrete user project model scripts are local working files. Prefer storing them under `models/`, which is ignored by git, unless the user explicitly asks to turn an example into a tracked repository example.
 
 ## Data Management
 

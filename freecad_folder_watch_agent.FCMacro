@@ -8,9 +8,11 @@ exports, and a result.json file to the out folder.
 import json
 import os
 import shutil
+import struct
 import sys
 import time
 import traceback
+import zlib
 from pathlib import Path
 
 import FreeCAD as App
@@ -21,14 +23,12 @@ except Exception:
     Gui = None
 
 
-DEFAULT_ROOT = Path(
-    "/Users/kim.schneider/Development/private/freecad/macros/folder-watch-py-agent"
-)
+DEFAULT_ROOT = Path.cwd()
 POLL_INTERVAL_MS = 1000
 AGENT_DOCUMENT_COMMENT_PREFIX = "freecad_folder_watch_agent:"
 AGENT_SESSION_PREFIX = AGENT_DOCUMENT_COMMENT_PREFIX + "session="
 AGENT_PROJECT_SESSION_PREFIX = AGENT_DOCUMENT_COMMENT_PREFIX + "project_session="
-BRIDGE_VERSION = "0.6.0-session-output-management"
+BRIDGE_VERSION = "0.6.1-detect-blank-screenshots"
 
 
 def _import_qtcore():
@@ -176,6 +176,104 @@ def _document_info(doc):
         "object_count": len(objects),
         "objects": objects,
     }
+
+
+def _png_appears_blank(path, tolerance=8, min_changed_ratio=0.001):
+    data = Path(path).read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return False
+
+    pos = 8
+    width = None
+    height = None
+    bit_depth = None
+    color_type = None
+    idat_chunks = []
+    while pos + 8 <= len(data):
+        length = struct.unpack(">I", data[pos : pos + 4])[0]
+        kind = data[pos + 4 : pos + 8]
+        chunk_start = pos + 8
+        chunk_end = chunk_start + length
+        chunk = data[chunk_start:chunk_end]
+        pos = chunk_end + 4
+
+        if kind == b"IHDR":
+            width, height, bit_depth, color_type, _, _, _ = struct.unpack(
+                ">IIBBBBB", chunk
+            )
+        elif kind == b"IDAT":
+            idat_chunks.append(chunk)
+        elif kind == b"IEND":
+            break
+
+    # FreeCAD saveImage normally writes 8-bit RGB PNGs. If another format appears,
+    # do not block the screenshot; only use this as a best-effort blank detector.
+    if not width or not height or bit_depth != 8 or color_type != 2:
+        return False
+
+    decompressed = zlib.decompress(b"".join(idat_chunks))
+    bytes_per_pixel = 3
+    stride = width * bytes_per_pixel
+    previous = bytearray(stride)
+    background = None
+    changed = 0
+    total = width * height
+    offset = 0
+
+    for _row_index in range(height):
+        filter_type = decompressed[offset]
+        offset += 1
+        scanline = decompressed[offset : offset + stride]
+        offset += stride
+        reconstructed = bytearray(stride)
+
+        for index, value in enumerate(scanline):
+            left = (
+                reconstructed[index - bytes_per_pixel]
+                if index >= bytes_per_pixel
+                else 0
+            )
+            up = previous[index]
+            up_left = (
+                previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            )
+            if filter_type == 0:
+                out = value
+            elif filter_type == 1:
+                out = (value + left) & 255
+            elif filter_type == 2:
+                out = (value + up) & 255
+            elif filter_type == 3:
+                out = (value + ((left + up) // 2)) & 255
+            elif filter_type == 4:
+                predictor = left + up - up_left
+                pa = abs(predictor - left)
+                pb = abs(predictor - up)
+                pc = abs(predictor - up_left)
+                predicted = (
+                    left if pa <= pb and pa <= pc else up if pb <= pc else up_left
+                )
+                out = (value + predicted) & 255
+            else:
+                return False
+            reconstructed[index] = out
+
+        if background is None:
+            background = tuple(reconstructed[0:bytes_per_pixel])
+
+        for index in range(0, stride, bytes_per_pixel):
+            pixel = tuple(reconstructed[index : index + bytes_per_pixel])
+            delta = max(
+                abs(pixel[channel] - background[channel]) for channel in range(3)
+            )
+            if delta > tolerance:
+                changed += 1
+                if float(changed) / float(total) >= min_changed_ratio:
+                    return False
+
+        previous = reconstructed
+
+    return True
 
 
 class FolderWatchAgent:
@@ -598,6 +696,21 @@ class FolderWatchAgent:
                 self._set_view(active_view, view_slug)
                 self._process_events()
                 active_view.saveImage(str(screenshot_path), width, height, background)
+                if self._screenshot_appears_blank(screenshot_path):
+                    self._log(
+                        "Screenshot {} appears blank; retrying view fit".format(
+                            screenshot_path
+                        )
+                    )
+                    self._set_view(active_view, view_slug, retry=True)
+                    self._process_events()
+                    active_view.saveImage(
+                        str(screenshot_path), width, height, background
+                    )
+                    if self._screenshot_appears_blank(screenshot_path):
+                        raise RuntimeError(
+                            "{} screenshot appears blank after retry".format(view_slug)
+                        )
                 screenshots.append(str(screenshot_path))
             except Exception as exc:
                 screenshots.append(
@@ -606,7 +719,7 @@ class FolderWatchAgent:
 
         return screenshots
 
-    def _set_view(self, active_view, view_name):
+    def _set_view(self, active_view, view_name, retry=False):
         method_names = {
             "iso": "viewIsometric",
             "isometric": "viewIsometric",
@@ -620,6 +733,7 @@ class FolderWatchAgent:
         }
         method = method_names.get(view_name, "viewIsometric")
         getattr(active_view, method)()
+        self._process_events()
         try:
             Gui.updateGui()
         except Exception:
@@ -628,10 +742,29 @@ class FolderWatchAgent:
             active_view.fitAll()
         except Exception:
             pass
+        self._process_events()
         try:
             Gui.SendMsgToActiveView("ViewFit")
         except Exception:
             pass
+        self._process_events()
+        try:
+            active_view.fitAll()
+        except Exception:
+            pass
+        if retry:
+            self._process_events()
+            try:
+                active_view.fitAll()
+            except Exception:
+                pass
+
+    def _screenshot_appears_blank(self, path):
+        try:
+            return _png_appears_blank(path)
+        except Exception as exc:
+            self._log("Could not inspect screenshot {}: {}".format(path, exc))
+            return False
 
     def _process_events(self):
         try:
