@@ -28,7 +28,7 @@ Design for editable CAD, not one-off geometry. Prefer parametric scripts with cl
 
 - Use millimeters unless the user specifies another unit.
 - Ask for missing functional constraints before modeling when guessing would change the design materially.
-- Put dimensions and options in `PARAMS` or named constants, not scattered magic numbers.
+- Every concrete model must be fully parametrized before the first submit (see Mandatory Parametrization below).
 - Use stable object names so later iterations can update or replace specific parts deliberately.
 - Keep construction geometry, cutters, and intermediate bodies hidden unless the user needs to inspect them.
 - Build around meaningful reference planes, origins, and axes; avoid arbitrary offsets that make later edits hard.
@@ -38,6 +38,82 @@ Design for editable CAD, not one-off geometry. Prefer parametric scripts with cl
 - When the user asks for a change, preserve the model's design intent and parameters instead of rebuilding unrelated parts.
 
 For variants, keep the same project and use separate sessions only when the result is a different view, representation, or design branch. For iterative changes to the same design, keep the same project/session.
+
+## Mandatory Parametrization
+
+Every concrete model script must be parametrized before the first submit. This is not optional.
+
+### Parameter Structure
+
+- All functional dimensions, tolerances, counts, and configurable options must live in a central parameter block: either `DEFAULT_PARAMS` merged with `PARAMS`, or an equivalent named dictionary at the top of the script.
+- No scattered magic numbers in geometry code. The only acceptable bare literals are `0`, `1`, axis vectors (`(1,0,0)` etc.), and purely local math intermediates (e.g. `math.pi / 4`).
+- Derived dimensions must be computed from named parameters, not hardcoded. Example: `slot_depth = params["wall_thickness"] * 2`, not `slot_depth = 6`.
+
+### FreeCAD Parameter Table
+
+Every model script must create a visible `Spreadsheet::Sheet` object labeled `Parameters` in the FreeCAD document. The table must contain at minimum:
+
+| Column | Content |
+|--------|---------|
+| A | Parameter name |
+| B | Value |
+| C | Unit |
+| D | Description |
+
+Example snippet:
+
+```python
+sheet = DOC.addObject("Spreadsheet::Sheet", "Parameters")
+sheet.Label = "Parameters"
+sheet.set("A1", "Name"); sheet.set("B1", "Value"); sheet.set("C1", "Unit"); sheet.set("D1", "Description")
+for i, (name, val, unit, desc) in enumerate(param_rows, start=2):
+    sheet.set(f"A{i}", name)
+    sheet.set(f"B{i}", str(val))
+    sheet.set(f"C{i}", unit)
+    sheet.set(f"D{i}", desc)
+DOC.recompute()
+```
+
+If spreadsheet creation fails at runtime (e.g. due to a FreeCAD version limitation), the job may continue, but the agent must note the failure in its response to the user.
+
+### Final Response
+
+When presenting a model result, the agent must list the active core parameters (name, value, unit) in its response so the user can verify or request changes.
+
+## Versioned Runs (Mandatory)
+
+Every submit must carry a meaningful `--title` that includes a version counter, e.g. `mofa-pin-v03-offset-foot`. Increment the version counter on each iteration within the same session.
+
+### Session Continuity
+
+- Iterative changes to the same design must reuse the same `--project` and `--session`.
+- Create a new session only for a genuinely different variant, alternative, or representation.
+
+### Post-Run Verification
+
+After every successful bridge run the agent must:
+
+1. Read `current/result.json` and verify `status`, `run_id`, bounding box, and listed exports.
+2. Inspect at least `current/views/iso.png`.
+3. Do not report a run as complete or acceptable before screenshot inspection.
+
+### Version Approval And Pinning
+
+When the user explicitly confirms a version (e.g. "perfekt", "so lassen", "passt", "ship it"), the agent must:
+
+1. Pin the current run:
+
+```bash
+python3 agent_data.py pin <project> <session> <run-id>
+```
+
+2. Include in the final response:
+   - Project name
+   - Session name
+   - Pinned run ID
+   - FCStd path
+   - STEP/STL path (if exported)
+   - Short parameter summary
 
 ## Working Model
 
@@ -80,14 +156,14 @@ Run commands from the repository root unless you pass `--root` explicitly.
 
 Only start this flow after the user has described the model/change to build, or has explicitly requested a bridge test.
 
-1. Create or update a normal FreeCAD Python model script.
-2. Submit it:
+1. Create or update a parametrized model script (see Mandatory Parametrization).
+2. Submit it with a versioned title:
 
 ```bash
 python3 agent_submit.py models/model.py \
   --project <project> \
   --session <session> \
-  --title <short-run-title> \
+  --title "<slug>-v<NN>-<change-summary>" \
   --step
 ```
 
@@ -97,10 +173,10 @@ python3 agent_submit.py models/model.py \
 out/projects/<project>/sessions/<session>/current/result.json
 ```
 
-4. Read `current/result.json`.
-5. If `status` is `ok`, inspect `current/views/iso.png` first. Use `front.png`, `right.png`, `top.png`, bounding boxes, areas, and volumes when needed.
+4. Read `current/result.json`. Verify `status`, `run_id`, bounding box, and exports.
+5. If `status` is `ok`, inspect `current/views/iso.png` first. Use `front.png`, `right.png`, `top.png`, bounding boxes, areas, and volumes when needed. Do not consider the iteration complete until screenshots have been checked.
 6. If `status` is `error`, read `error` and `traceback`, fix the script, and submit again.
-7. Iterate by submitting another job with the same `--project` and `--session`.
+7. Iterate by submitting another job with the same `--project`, `--session`, and incremented version number in `--title`.
 
 `out/latest_result.json` points to the last processed job across all projects. Prefer the project/session `current/result.json` when you know which model you are working on.
 
@@ -138,7 +214,7 @@ OUT_DIR  # output directory for this run
 PARAMS   # dict from --param and --params-file
 ```
 
-Prefer explicit, stable object names. Keep scripts deterministic from their inputs. Use `PARAMS` for dimensions and configuration that should change across iterations.
+Prefer explicit, stable object names. Keep scripts deterministic from their inputs. Use `PARAMS` for dimensions and configuration that should change across iterations. Every script must define a `DEFAULT_PARAMS` dict merged with the injected `PARAMS` so it runs standalone and documents all tunables. The script must also create a `Parameters` spreadsheet in the document (see Mandatory Parametrization).
 
 Concrete user project model scripts are local working files. Prefer storing them under `models/`, which is ignored by git, unless the user explicitly asks to turn an example into a tracked repository example.
 
