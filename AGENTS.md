@@ -112,7 +112,7 @@ python3 agent_data.py pin <project> <session> <run-id>
    - Session name
    - Pinned run ID
    - FCStd path
-   - STEP/STL path (if exported)
+   - STEP/STL/3MF path (if exported)
    - Short parameter summary
 
 ## Working Model
