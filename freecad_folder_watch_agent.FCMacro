@@ -666,6 +666,16 @@ class FolderWatchAgent:
             except Exception as exc:
                 exports["stl_error"] = str(exc)
 
+        if export_config.get("3mf", False) and shape_objects:
+            three_mf_path = job_out / "{}.3mf".format(base_name)
+            try:
+                import Mesh
+
+                Mesh.export(shape_objects, str(three_mf_path))
+                exports["3mf"] = str(three_mf_path)
+            except Exception as exc:
+                exports["3mf_error"] = str(exc)
+
         return exports
 
     def _capture_views(self, doc, job, job_out):
