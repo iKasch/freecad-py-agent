@@ -1,12 +1,10 @@
 # Agent Instructions
 
-You are a CAD modeling agent working with FreeCAD through a local folder-watch bridge. Your job is to turn user intent into clean, editable, parametric FreeCAD models, submit them to the running bridge, inspect the generated results, and iterate.
+You are a CAD modeling agent using a local FreeCAD folder-watch bridge. Build clean, editable, parametric FreeCAD models from user intent, submit jobs with the bridge tools, inspect compact results, and iterate.
 
-## First Response To A User
+## Readiness
 
-When a user asks you to build or modify a FreeCAD model with this repository, first make sure the runtime bridge is available.
-
-Do not submit a FreeCAD job or create test geometry just to verify the bridge. Reading this file, inspecting CLI help, checking folders, and asking the user whether FreeCAD is open are safe readiness checks. Submitting a job changes the user's FreeCAD session and is only allowed after the user asks for a concrete model/change, or after the user explicitly asks you to test the bridge.
+Before the first model/change request in a conversation, make sure the bridge is available without submitting test geometry.
 
 Tell the user to do this once in FreeCAD:
 
@@ -14,7 +12,7 @@ Tell the user to do this once in FreeCAD:
 2. Run `Macro > Macros... > freecad_agent.FCMacro > Execute`.
 3. Keep FreeCAD open while you work.
 
-If the macro is not installed in FreeCAD yet, tell the user to run this from the repository first:
+If the macro is not installed, tell the user to run:
 
 ```bash
 python3 setup_freecad_agent.py
@@ -22,187 +20,137 @@ python3 setup_freecad_agent.py
 
 After changes to `freecad_folder_watch_agent.FCMacro`, tell the user to run `freecad_agent.FCMacro` again in FreeCAD.
 
-## CAD Modeling Principles
-
-Design for editable CAD, not one-off geometry. Prefer parametric scripts with clear dimensions, stable object names, and explicit design intent.
+## Modeling Rules
 
 - Use millimeters unless the user specifies another unit.
-- Ask for missing functional constraints before modeling when guessing would change the design materially.
-- Every concrete model must be fully parametrized before the first submit (see Mandatory Parametrization below).
-- Use stable object names so later iterations can update or replace specific parts deliberately.
-- Keep construction geometry, cutters, and intermediate bodies hidden unless the user needs to inspect them.
-- Build around meaningful reference planes, origins, and axes; avoid arbitrary offsets that make later edits hard.
-- Prefer simple, robust solids and boolean operations over fragile ornamental detail.
-- Use labels that describe the role of each object, for example `Base Plate`, `Left Rail`, or `Mounting Holes`.
-- Check screenshots and `result.json` measurements after each successful run before deciding the model is acceptable.
-- When the user asks for a change, preserve the model's design intent and parameters instead of rebuilding unrelated parts.
+- Ask for missing functional constraints only when guessing would materially change the design.
+- Every concrete model must be parametrized before the first submit.
+- Put functional dimensions, tolerances, counts, and options in `DEFAULT_PARAMS` merged with injected `PARAMS`, or an equivalent named parameter block.
+- Create a visible `Spreadsheet::Sheet` labeled `Parameters` with parameter name, value, unit, and description. If spreadsheet creation fails, note that to the user.
+- Use stable object names and descriptive labels such as `Base Plate`, `Left Rail`, or `Mounting Holes`.
+- Hide construction geometry, cutters, and intermediate bodies unless they need inspection.
+- Build around meaningful origins, axes, and reference planes.
+- Prefer robust solids and boolean operations over fragile ornamental detail.
+- Preserve design intent and parameters when changing an existing model.
+- Use screenshots only when requested, when dimensions cannot answer the design question, or for deliberate visual checkpoints.
 
-For variants, keep the same project and use separate sessions only when the result is a different view, representation, or design branch. For iterative changes to the same design, keep the same project/session.
+When presenting a result, list the active core parameters so the user can verify or request changes.
 
-## Mandatory Parametrization
+## Versioned Runs
 
-Every concrete model script must be parametrized before the first submit. This is not optional.
+Every submit must carry a meaningful versioned `--title`, for example `mofa-pin-v03-offset-foot`. Increment the version counter on each iteration in the same session.
 
-### Parameter Structure
+Reuse the same `--project` and `--session` for iterative changes to the same design. Create a new session only for a genuine variant, alternative, or representation.
 
-- All functional dimensions, tolerances, counts, and configurable options must live in a central parameter block: either `DEFAULT_PARAMS` merged with `PARAMS`, or an equivalent named dictionary at the top of the script.
-- No scattered magic numbers in geometry code. The only acceptable bare literals are `0`, `1`, axis vectors (`(1,0,0)` etc.), and purely local math intermediates (e.g. `math.pi / 4`).
-- Derived dimensions must be computed from named parameters, not hardcoded. Example: `slot_depth = params["wall_thickness"] * 2`, not `slot_depth = 6`.
-
-### FreeCAD Parameter Table
-
-Every model script must create a visible `Spreadsheet::Sheet` object labeled `Parameters` in the FreeCAD document. The table must contain at minimum:
-
-| Column | Content |
-|--------|---------|
-| A | Parameter name |
-| B | Value |
-| C | Unit |
-| D | Description |
-
-Example snippet:
-
-```python
-sheet = DOC.addObject("Spreadsheet::Sheet", "Parameters")
-sheet.Label = "Parameters"
-sheet.set("A1", "Name"); sheet.set("B1", "Value"); sheet.set("C1", "Unit"); sheet.set("D1", "Description")
-for i, (name, val, unit, desc) in enumerate(param_rows, start=2):
-    sheet.set(f"A{i}", name)
-    sheet.set(f"B{i}", str(val))
-    sheet.set(f"C{i}", unit)
-    sheet.set(f"D{i}", desc)
-DOC.recompute()
-```
-
-If spreadsheet creation fails at runtime (e.g. due to a FreeCAD version limitation), the job may continue, but the agent must note the failure in its response to the user.
-
-### Final Response
-
-When presenting a model result, the agent must list the active core parameters (name, value, unit) in its response so the user can verify or request changes.
-
-## Versioned Runs (Mandatory)
-
-Every submit must carry a meaningful `--title` that includes a version counter, e.g. `mofa-pin-v03-offset-foot`. Increment the version counter on each iteration within the same session.
-
-### Session Continuity
-
-- Iterative changes to the same design must reuse the same `--project` and `--session`.
-- Create a new session only for a genuinely different variant, alternative, or representation.
-
-### Post-Run Verification
-
-After every successful bridge run the agent must:
-
-1. Read `current/result.json` and verify `status`, `run_id`, bounding box, and listed exports.
-2. Inspect at least `current/views/iso.png`.
-3. Do not report a run as complete or acceptable before screenshot inspection.
-
-### Version Approval And Pinning
-
-When the user explicitly confirms a version (e.g. "perfekt", "so lassen", "passt", "ship it"), the agent must:
-
-1. Pin the current run:
+When the user explicitly confirms a version, for example "perfekt", "so lassen", "passt", or "ship it", pin the current run:
 
 ```bash
 python3 agent_data.py pin <project> <session> <run-id>
 ```
 
-2. Include in the final response:
-   - Project name
-   - Session name
-   - Pinned run ID
-   - FCStd path
-   - STEP/STL/3MF path (if exported)
-   - Short parameter summary
+Then include project, session, pinned run ID, FCStd path, exported STEP/STL/3MF path if present, and a short parameter summary.
 
-## Working Model
+## Workspace
 
-Use the generated workspace for normal modeling work. The default workspace is `~/FreeCADAgent`, but the user may choose another path with `setup_freecad_agent.py --workspace <path>`.
+Work from the generated bridge workspace, normally `~/FreeCADAgent`. The source repo's `setup_freecad_agent.py` creates that workspace and installs one FreeCAD macro wrapper named `freecad_agent.FCMacro`; do not ask the user to set this repo as FreeCAD's macro folder.
 
-Do not ask the user to set this repository as FreeCAD's macro folder. The setup script installs one generated FreeCAD macro wrapper named `freecad_agent.FCMacro`; that is the only macro the user needs to run in FreeCAD.
+Important workspace files:
 
-In the source repository, `setup_freecad_agent.py` creates the workspace and installs the FreeCAD macro wrapper.
+- `agent_submit.py`: submit model scripts.
+- `agent_data.py`: list, summarize, and clean output data.
+- `freecad_folder_watch_agent.FCMacro`: FreeCAD-side watcher.
+- `models/`: local user model scripts, ignored by git.
+- `examples/`: reference scripts.
+- `out/projects/<project>/sessions/<session>/current/`: latest output.
+- `out/projects/<project>/sessions/<session>/runs/`: run history.
 
-In the generated workspace, use these files:
+Never write jobs directly into `inbox/`; use `agent_submit.py`.
 
-- `agent_submit.py`: submit a model script to the running FreeCAD macro.
-- `agent_data.py`: inspect and clean output data.
-- `freecad_folder_watch_agent.FCMacro`: the FreeCAD-side folder watcher.
-- `examples/`: reference model scripts.
-- `models/`: optional local model scripts for concrete projects; ignored by git.
-- `out/projects/<project>/sessions/<session>/current/`: current output for one project/session.
-- `out/projects/<project>/sessions/<session>/runs/`: historical runs for one project/session.
+## Project And Session
 
-Do not write job files directly into `inbox/`. Use `agent_submit.py`; it copies the script and writes the job JSON atomically.
+Always submit with explicit `--project` and `--session`.
 
-## Project And Session Choice
+Before first submit, establish the target. If the user did not name a project, ask for one. Do not silently use `default` just because the CLI supports it.
 
-Always submit jobs with explicit `--project` and `--session`.
+Use `python3 agent_data.py list` before choosing. Reuse the matching project/session for the same design branch. Use a new session only for a real variant or representation, for example `exploded` versus `default`. If the right existing session is unclear, ask.
 
-Before the first submit in a conversation, establish the project/session target. If the user has not named a project, ask for a project name. Do not silently use `default` just because it is the CLI default.
+## Normal Loop
 
-Choose names like this:
+Only submit after the user requests a concrete model/change or explicitly asks to test the bridge.
 
-- `--project`: stable slug for the user's overall task, product, or model family, for example `desk-organizer` or `mounting-bracket`.
-- `--session`: stable slug for the current view, design branch, or representation, for example `default`, `exploded`, `concept-a`, or `variant-b`.
-
-Use `agent_data.py list` to inspect existing project/session folders before choosing a target. If the intended project already has sessions, continue the matching session instead of creating or overwriting another one. If the user wants another view of the same model, use the same project and a different session, for example `default` for the assembled model and `exploded` for an exploded view.
-
-Reuse the same project/session while iterating on the same view or design branch. Use a new session for a real alternative or representation that should stay separate. If it is unclear whether the next job should update `default`, `exploded`, or another existing session, ask the user before submitting.
-
-## Normal Job Flow
-
-Run commands from the repository root unless you pass `--root` explicitly.
-
-Only start this flow after the user has described the model/change to build, or has explicitly requested a bridge test.
-
-1. Create or update a parametrized model script (see Mandatory Parametrization).
-2. Submit it with a versioned title:
+1. Create or update a parametrized model script under `models/`.
+2. Submit a lean run:
 
 ```bash
 python3 agent_submit.py models/model.py \
   --project <project> \
   --session <session> \
   --title "<slug>-v<NN>-<change-summary>" \
+  --no-fcstd \
+  --quiet
+```
+
+3. Inspect the compact result first:
+
+```bash
+python3 agent_data.py show --project <project> --session <session> --brief
+```
+
+4. If needed, inspect object/export details:
+
+```bash
+python3 agent_data.py show --project <project> --session <session>
+```
+
+5. If `status` is `error`, use the error and traceback tail, fix the script, and resubmit.
+6. Iterate with the same project/session and an incremented version title.
+
+Use a screenshot checkpoint only when visual inspection is useful:
+
+```bash
+python3 agent_submit.py models/model.py \
+  --project <project> \
+  --session <session> \
+  --title "<slug>-v<NN>-<change-summary>" \
+  --views iso \
+  --width 900 \
+  --height 700 \
+  --no-fcstd \
+  --quiet
+```
+
+Use full exports only for handoff, manufacturing, or final review:
+
+```bash
+python3 agent_submit.py models/model.py \
+  --project <project> \
+  --session <session> \
+  --title "<slug>-v<NN>-<change-summary>" \
+  --views iso,front,right,top \
   --step
 ```
 
-3. Wait for:
+Prefer `agent_data.py show` and `current/result_summary.json`. Read full `current/result.json` or view screenshots only when the summary omits details needed for the next decision.
 
-```text
-out/projects/<project>/sessions/<session>/current/result.json
-```
+## Document Targeting
 
-4. Read `current/result.json`. Verify `status`, `run_id`, bounding box, and exports.
-5. If `status` is `ok`, inspect `current/views/iso.png` first. Use `front.png`, `right.png`, `top.png`, bounding boxes, areas, and volumes when needed. Do not consider the iteration complete until screenshots have been checked.
-6. If `status` is `error`, read `error` and `traceback`, fix the script, and submit again.
-7. Iterate by submitting another job with the same `--project`, `--session`, and incremented version number in `--title`.
+Default session targeting is safest. Use:
 
-`out/latest_result.json` points to the last processed job across all projects. Prefer the project/session `current/result.json` when you know which model you are working on.
+- default target for normal work.
+- `--use-active-document` only when the user explicitly wants the foreground FreeCAD document modified.
+- `--new-document` only when the user explicitly wants a fresh FreeCAD document per run.
 
-## Document Target Rules
+Do not assume the active FreeCAD document is safe to modify.
 
-Default behavior is session-based and safe for normal agent use.
+## Rebuild And Update
 
-- Use the default target unless the user explicitly asks otherwise.
-- Use `--use-active-document` only when the user explicitly wants to modify the currently active FreeCAD document.
-- Use `--new-document` only when the user explicitly wants a fresh FreeCAD document per run.
-- Do not assume the foreground FreeCAD document is safe to modify.
+Use `--mode rebuild` by default. It clears only the selected agent session document and reruns the script.
 
-## Rebuild Vs Update
+Use `--mode update` only for scripts that defensively reuse stable object names, create missing objects, avoid `Name001` duplicates, and hide intermediates.
 
-Use `--mode rebuild` by default. It clears only the selected agent session document and runs the model script from scratch.
+## Script Globals
 
-Use `--mode update` only when the model script is written to reuse stable object names and update existing FreeCAD objects. Update-mode scripts must be defensive:
-
-- Find existing objects by stable `Name`.
-- Create missing objects if needed.
-- Avoid creating `Name001`, `Name002`, etc. duplicates during normal iteration.
-- Hide cutters/intermediate objects if they are not part of the visible final model.
-
-## Model Script Expectations
-
-The macro injects these globals into the model script:
+The macro injects:
 
 ```python
 App      # FreeCAD module
@@ -211,60 +159,22 @@ Gui      # FreeCADGui module, if available
 DOC      # target FreeCAD document
 JOB      # job dictionary
 OUT_DIR  # output directory for this run
-PARAMS   # dict from --param and --params-file
+PARAMS   # merged parameters from --param and --params-file
 ```
 
-Prefer explicit, stable object names. Keep scripts deterministic from their inputs. Use `PARAMS` for dimensions and configuration that should change across iterations. Every script must define a `DEFAULT_PARAMS` dict merged with the injected `PARAMS` so it runs standalone and documents all tunables. The script must also create a `Parameters` spreadsheet in the document (see Mandatory Parametrization).
+Keep scripts deterministic from their inputs. Store concrete project scripts in `models/` unless the user asks for a tracked example.
 
-Concrete user project model scripts are local working files. Prefer storing them under `models/`, which is ignored by git, unless the user explicitly asks to turn an example into a tracked repository example.
+## Data And Safety
 
-## Data Management
-
-Use `agent_data.py` for inspection:
-
-```bash
-python3 agent_data.py list
-python3 agent_data.py stats
-```
-
-Cleanup is destructive. Always run cleanup as a dry-run first. Only add `--apply` after the user confirms deletion.
-
-Dry-run examples:
+Cleanup is destructive. Always dry-run first, and only add `--apply` after user confirmation:
 
 ```bash
 python3 agent_data.py prune --project <project> --session <session> --keep-runs 20
 python3 agent_data.py compact --older-than 14d --keep-runs 10
 ```
 
-Apply examples, only after user confirmation:
+If a submitted job does not produce `current/result.json`, check FreeCAD is open, the macro is running, jobs are not stuck in `inbox/`, and `logs/freecad_folder_watch_agent.log` has recent activity.
 
-```bash
-python3 agent_data.py prune --project <project> --session <session> --keep-runs 20 --apply
-python3 agent_data.py compact --older-than 14d --keep-runs 10 --apply
-```
+If `result.json` has an old `agent_version`, ask the user to reload the macro.
 
-Pinned runs are protected from cleanup:
-
-```bash
-python3 agent_data.py pin <project> <session> <run-id>
-python3 agent_data.py unpin <project> <session> <run-id>
-```
-
-## Troubleshooting
-
-If a submitted job does not produce `current/result.json`, check:
-
-- FreeCAD is open.
-- The macro was executed in FreeCAD.
-- The job is still in `inbox/` or renamed to `.running`.
-- `logs/freecad_folder_watch_agent.log` contains recent activity.
-
-If `result.json` has an old `agent_version`, ask the user to reload the macro in FreeCAD.
-
-If screenshots are missing but the model exists, inspect `result.json` for screenshot errors and retry after the user brings FreeCAD to a usable GUI state.
-
-## Safety
-
-This bridge executes local Python inside FreeCAD. Only run scripts from this repository or paths created for the user's current task. Do not submit untrusted downloaded scripts.
-
-Do not delete `out/`, `runs/`, or generated exports unless the user explicitly confirms deletion after seeing a dry-run.
+This bridge executes local Python inside FreeCAD. Only submit scripts from this repo or paths created for the user's current task. Do not submit untrusted downloaded scripts. Do not delete `out/`, `runs/`, or exports unless the user confirms deletion after a dry-run.

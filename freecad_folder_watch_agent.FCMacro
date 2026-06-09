@@ -152,6 +152,55 @@ def _bounding_box_dict(bound_box):
     }
 
 
+def _round_number(value):
+    try:
+        return round(float(value), 3)
+    except Exception:
+        return value
+
+
+def _compact_bounding_box(box):
+    if not box:
+        return None
+    return {
+        "size": [
+            _round_number(box.get("x_length", 0.0)),
+            _round_number(box.get("y_length", 0.0)),
+            _round_number(box.get("z_length", 0.0)),
+        ],
+        "min": [
+            _round_number(box.get("x_min", 0.0)),
+            _round_number(box.get("y_min", 0.0)),
+            _round_number(box.get("z_min", 0.0)),
+        ],
+        "max": [
+            _round_number(box.get("x_max", 0.0)),
+            _round_number(box.get("y_max", 0.0)),
+            _round_number(box.get("z_max", 0.0)),
+        ],
+    }
+
+
+def _union_bounding_box(objects):
+    boxes = [obj.get("bounding_box") for obj in objects if obj.get("bounding_box")]
+    if not boxes:
+        return None
+    return {
+        "x_min": min(box["x_min"] for box in boxes),
+        "x_max": max(box["x_max"] for box in boxes),
+        "y_min": min(box["y_min"] for box in boxes),
+        "y_max": max(box["y_max"] for box in boxes),
+        "z_min": min(box["z_min"] for box in boxes),
+        "z_max": max(box["z_max"] for box in boxes),
+        "x_length": max(box["x_max"] for box in boxes)
+        - min(box["x_min"] for box in boxes),
+        "y_length": max(box["y_max"] for box in boxes)
+        - min(box["y_min"] for box in boxes),
+        "z_length": max(box["z_max"] for box in boxes)
+        - min(box["z_min"] for box in boxes),
+    }
+
+
 def _document_info(doc):
     objects = []
     for obj in getattr(doc, "Objects", []):
@@ -160,6 +209,10 @@ def _document_info(doc):
             "label": getattr(obj, "Label", ""),
             "type_id": getattr(obj, "TypeId", ""),
         }
+        try:
+            entry["visible"] = bool(obj.ViewObject.Visibility)
+        except Exception:
+            entry["visible"] = None
         shape = getattr(obj, "Shape", None)
         if shape is not None and not getattr(shape, "isNull", lambda: True)():
             try:
@@ -176,6 +229,75 @@ def _document_info(doc):
         "object_count": len(objects),
         "objects": objects,
     }
+
+
+def _screenshot_summary(screenshot):
+    if isinstance(screenshot, dict):
+        path = screenshot.get("path")
+        summary = {
+            "view": screenshot.get("view") or (Path(path).stem if path else None),
+            "path": path,
+        }
+        if screenshot.get("error"):
+            summary["error"] = screenshot.get("error")
+        return summary
+    path = str(screenshot)
+    return {"view": Path(path).stem, "path": path}
+
+
+def _result_summary(result, max_objects=30):
+    document = result.get("document") or {}
+    objects = document.get("objects") or []
+    visible_objects = [
+        obj for obj in objects if obj.get("visible") is not False and obj.get("bounding_box")
+    ]
+    object_source = visible_objects or [obj for obj in objects if obj.get("bounding_box")]
+
+    compact_objects = []
+    for obj in object_source[:max_objects]:
+        compact_objects.append(
+            {
+                "name": obj.get("name"),
+                "label": obj.get("label"),
+                "type_id": obj.get("type_id"),
+                "size": (_compact_bounding_box(obj.get("bounding_box")) or {}).get("size"),
+                "volume": _round_number(obj.get("volume")) if "volume" in obj else None,
+            }
+        )
+
+    summary = {
+        "status": result.get("status"),
+        "agent_version": result.get("agent_version"),
+        "project": result.get("project"),
+        "session": result.get("session"),
+        "run_id": result.get("run_id"),
+        "run_number": result.get("run_number"),
+        "started_at": result.get("started_at"),
+        "finished_at": result.get("finished_at"),
+        "current_dir": result.get("current_dir"),
+        "output_dir": result.get("output_dir"),
+        "document": {
+            "name": document.get("name"),
+            "label": document.get("label"),
+            "object_count": document.get("object_count", 0),
+            "visible_shape_count": len(visible_objects),
+            "bounding_box": _compact_bounding_box(_union_bounding_box(object_source)),
+            "objects": compact_objects,
+        },
+        "screenshots": [
+            _screenshot_summary(item) for item in (result.get("screenshots") or [])
+        ],
+        "exports": result.get("exports") or {},
+    }
+
+    omitted = max(0, len(object_source) - max_objects)
+    if omitted:
+        summary["document"]["omitted_object_count"] = omitted
+    if result.get("error"):
+        summary["error"] = result.get("error")
+    if result.get("traceback"):
+        summary["traceback_tail"] = "\n".join(result.get("traceback", "").splitlines()[-12:])
+    return summary
 
 
 def _png_appears_blank(path, tolerance=8, min_changed_ratio=0.001):
@@ -683,7 +805,11 @@ class FolderWatchAgent:
         if Gui is None or doc is None:
             return screenshots
 
-        view_names = job.get("views") or ["iso", "front", "right", "top"]
+        view_names = job.get("views")
+        if view_names is None:
+            view_names = ["iso", "front", "right", "top"]
+        if not view_names:
+            return screenshots
         width = int(job.get("screenshot_width", 1400))
         height = int(job.get("screenshot_height", 1000))
         background = job.get("screenshot_background", "White")
@@ -793,6 +919,7 @@ class FolderWatchAgent:
         result["output_dir"] = str(job_out)
         result_path = job_out / "result.json"
         _write_json(result_path, result)
+        _write_json(job_out / "result_summary.json", _result_summary(result))
 
         try:
             shutil.move(str(running_path), str(job_out / "job.json"))
@@ -808,9 +935,18 @@ class FolderWatchAgent:
             project_latest = paths["project_dir"] / "latest_result.json"
             _write_json(session_latest, result)
             _write_json(project_latest, result)
+            _write_json(
+                paths["session_dir"] / "latest_result_summary.json",
+                _result_summary(result),
+            )
+            _write_json(
+                paths["project_dir"] / "latest_result_summary.json",
+                _result_summary(result),
+            )
 
         latest_path = self.out / "latest_result.json"
         _write_json(latest_path, result)
+        _write_json(self.out / "latest_result_summary.json", _result_summary(result))
 
         self._log("Finished job {} with status {}".format(job_id, result["status"]))
 

@@ -87,8 +87,12 @@ def parse_args():
     )
     parser.add_argument(
         "--views",
-        default="iso,front,right,top",
-        help="Comma-separated screenshots to capture. Known: iso,front,rear,right,left,top,bottom.",
+        default="",
+        help=(
+            "Comma-separated screenshots to capture. Known: "
+            "iso,front,rear,right,left,top,bottom. Defaults to none; use "
+            "'none' to skip screenshots explicitly."
+        ),
     )
     parser.add_argument("--width", type=int, default=1400, help="Screenshot width")
     parser.add_argument("--height", type=int, default=1000, help="Screenshot height")
@@ -126,6 +130,9 @@ def parse_args():
     parser.add_argument(
         "--no-fcstd", action="store_true", help="Do not save a FreeCAD .FCStd file"
     )
+    parser.add_argument(
+        "--quiet", action="store_true", help="Only print the submitted job id"
+    )
     return parser.parse_args()
 
 
@@ -162,6 +169,8 @@ def main():
     tmp_script.replace(copied_script)
 
     views = [item.strip() for item in args.views.split(",") if item.strip()]
+    if len(views) == 1 and views[0].lower() in ("none", "off", "false", "0"):
+        views = []
     params = load_params(args.params_file)
     for key, value in args.param:
         params[key] = value
@@ -196,6 +205,8 @@ def main():
     atomic_write_text(job_path, json.dumps(job, indent=2, sort_keys=True))
 
     print("submitted {}".format(job_id))
+    if args.quiet:
+        return
     print("job: {}".format(job_path))
     print(
         "current result: {}".format(
