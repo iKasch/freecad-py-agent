@@ -1,8 +1,8 @@
 # FreeCAD Folder Watch Python Agent
 
-Local bridge between your own coding agent and FreeCAD. FreeCAD runs one macro, watches a workspace `inbox/`, executes submitted Python jobs, renders screenshots, and stores structured results under `out/`.
+Local bridge between your own coding agent and FreeCAD. FreeCAD runs one macro, watches a workspace `inbox/`, executes submitted Python jobs, and stores structured results under `out/`. Screenshots and exports are opt-in.
 
-This project does not include or run an AI agent inside FreeCAD. Use an external agent that can read and write local files, for example Codex, Claude Code, or a similar coding agent. The human starts FreeCAD and the macro; the external agent works from the generated workspace, writes model scripts, submits jobs, reads `result.json` and screenshots, and iterates.
+This project does not include or run an AI agent inside FreeCAD. Use an external agent that can read and write local files, for example Codex, Claude Code, or a similar coding agent. The human starts FreeCAD and the macro; the external agent works from the generated workspace, writes model scripts, submits jobs, reads compact summaries, and iterates. Screenshots are for deliberate visual checkpoints.
 
 ## What To Clone
 
@@ -71,16 +71,26 @@ python3 agent_submit.py models/model.py \
   --project smart-convert-case \
   --session default \
   --title first-pass \
-  --step
+  --no-fcstd \
+  --quiet
 ```
 
 Important outputs:
 
 ```text
 out/projects/<project>/sessions/<session>/current/result.json
-out/projects/<project>/sessions/<session>/current/views/iso.png
+out/projects/<project>/sessions/<session>/current/result_summary.json
+out/projects/<project>/sessions/<session>/current/views/iso.png  # when screenshots were requested
 out/projects/<project>/sessions/<session>/runs/
 ```
+
+For routine iteration, have the agent inspect the compact summary first:
+
+```bash
+python3 agent_data.py show --project smart-convert-case --session default --brief
+```
+
+Use screenshots, full `result.json`, and exports when the compact summary is not enough to make the next modeling decision, or when you want a deliberate visual checkpoint.
 
 ## Projects And Sessions
 
@@ -104,6 +114,8 @@ Inspect stored data:
 ```bash
 python3 agent_data.py list
 python3 agent_data.py stats
+python3 agent_data.py show --project smart-convert-case --session default --brief
+python3 agent_data.py show --project smart-convert-case --session default
 ```
 
 Cleanup commands are dry-runs by default:
@@ -124,11 +136,36 @@ python3 agent_data.py prune --project smart-convert-case --session default --kee
 - `--project NAME`: project folder and part of the FreeCAD session identity.
 - `--session NAME`: reused session inside a project.
 - `--mode rebuild|update`: `rebuild` starts fresh, `update` keeps existing objects.
-- `--views iso,front,right,top,bottom`: screenshots to render.
+- `--views iso,front,right,top,bottom`: screenshots to render. Defaults to no screenshots; use `--views none` to skip explicitly.
 - `--param KEY=VALUE`: pass one parameter to the model script.
 - `--params-file PATH`: pass parameters from a JSON file.
 - `--step`: export STEP.
 - `--stl`: export STL.
 - `--no-fcstd`: do not save a FreeCAD file.
+
+For low-cost design iteration, skip screenshots and the `.FCStd` checkpoint:
+
+```bash
+python3 agent_submit.py models/model.py \
+  --project smart-convert-case \
+  --session default \
+  --no-fcstd \
+  --quiet
+```
+
+Request one smaller screenshot only when visual inspection is useful:
+
+```bash
+python3 agent_submit.py models/model.py \
+  --project smart-convert-case \
+  --session default \
+  --views iso \
+  --width 900 \
+  --height 700 \
+  --no-fcstd \
+  --quiet
+```
+
+Run a full checkpoint with multiple views and exports before user review, handoff, or manufacturing export.
 
 Concrete local project models belong in `models/`; this folder is intentionally not tracked. Tracked, generally useful examples belong in `examples/`.
