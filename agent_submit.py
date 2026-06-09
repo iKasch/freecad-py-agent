@@ -126,6 +126,7 @@ def parse_args():
     )
     parser.add_argument("--step", action="store_true", help="Also export STEP")
     parser.add_argument("--stl", action="store_true", help="Also export STL")
+    parser.add_argument("--3mf", dest="three_mf", action="store_true", help="Also export 3MF")
     parser.add_argument(
         "--no-fcstd", action="store_true", help="Do not save a FreeCAD .FCStd file"
     )
@@ -195,6 +196,7 @@ def main():
             "fcstd": not args.no_fcstd,
             "step": args.step,
             "stl": args.stl,
+            "3mf": args.three_mf,
         },
         "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
     }

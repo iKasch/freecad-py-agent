@@ -24,13 +24,31 @@ After changes to `freecad_folder_watch_agent.FCMacro`, tell the user to run `fre
 
 - Use millimeters unless the user specifies another unit.
 - Ask for missing functional constraints only when guessing would materially change the design.
-- Put dimensions and options in `PARAMS` or named constants.
+- Every concrete model must be parametrized before the first submit.
+- Put functional dimensions, tolerances, counts, and options in `DEFAULT_PARAMS` merged with injected `PARAMS`, or an equivalent named parameter block.
+- Create a visible `Spreadsheet::Sheet` labeled `Parameters` with parameter name, value, unit, and description. If spreadsheet creation fails, note that to the user.
 - Use stable object names and descriptive labels such as `Base Plate`, `Left Rail`, or `Mounting Holes`.
 - Hide construction geometry, cutters, and intermediate bodies unless they need inspection.
 - Build around meaningful origins, axes, and reference planes.
 - Prefer robust solids and boolean operations over fragile ornamental detail.
 - Preserve design intent and parameters when changing an existing model.
 - Use screenshots only when requested, when dimensions cannot answer the design question, or for deliberate visual checkpoints.
+
+When presenting a result, list the active core parameters so the user can verify or request changes.
+
+## Versioned Runs
+
+Every submit must carry a meaningful versioned `--title`, for example `mofa-pin-v03-offset-foot`. Increment the version counter on each iteration in the same session.
+
+Reuse the same `--project` and `--session` for iterative changes to the same design. Create a new session only for a genuine variant, alternative, or representation.
+
+When the user explicitly confirms a version, for example "perfekt", "so lassen", "passt", or "ship it", pin the current run:
+
+```bash
+python3 agent_data.py pin <project> <session> <run-id>
+```
+
+Then include project, session, pinned run ID, FCStd path, exported STEP/STL/3MF path if present, and a short parameter summary.
 
 ## Workspace
 
@@ -60,14 +78,14 @@ Use `python3 agent_data.py list` before choosing. Reuse the matching project/ses
 
 Only submit after the user requests a concrete model/change or explicitly asks to test the bridge.
 
-1. Create or update a model script under `models/`.
+1. Create or update a parametrized model script under `models/`.
 2. Submit a lean run:
 
 ```bash
 python3 agent_submit.py models/model.py \
   --project <project> \
   --session <session> \
-  --title <short-run-title> \
+  --title "<slug>-v<NN>-<change-summary>" \
   --no-fcstd \
   --quiet
 ```
@@ -78,14 +96,14 @@ python3 agent_submit.py models/model.py \
 python3 agent_data.py show --project <project> --session <session> --brief
 ```
 
-4. If needed, inspect object details:
+4. If needed, inspect object/export details:
 
 ```bash
 python3 agent_data.py show --project <project> --session <session>
 ```
 
 5. If `status` is `error`, use the error and traceback tail, fix the script, and resubmit.
-6. Iterate with the same project/session.
+6. Iterate with the same project/session and an incremented version title.
 
 Use a screenshot checkpoint only when visual inspection is useful:
 
@@ -93,7 +111,7 @@ Use a screenshot checkpoint only when visual inspection is useful:
 python3 agent_submit.py models/model.py \
   --project <project> \
   --session <session> \
-  --title <short-run-title> \
+  --title "<slug>-v<NN>-<change-summary>" \
   --views iso \
   --width 900 \
   --height 700 \
@@ -107,7 +125,7 @@ Use full exports only for handoff, manufacturing, or final review:
 python3 agent_submit.py models/model.py \
   --project <project> \
   --session <session> \
-  --title <short-run-title> \
+  --title "<slug>-v<NN>-<change-summary>" \
   --views iso,front,right,top \
   --step
 ```

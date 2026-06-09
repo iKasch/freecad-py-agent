@@ -141,6 +141,7 @@ python3 agent_data.py prune --project smart-convert-case --session default --kee
 - `--params-file PATH`: pass parameters from a JSON file.
 - `--step`: export STEP.
 - `--stl`: export STL.
+- `--3mf`: export 3MF.
 - `--no-fcstd`: do not save a FreeCAD file.
 
 For low-cost design iteration, skip screenshots and the `.FCStd` checkpoint:

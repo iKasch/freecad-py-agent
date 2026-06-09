@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 DEFAULT_ROOT = Path(__file__).parent.absolute()
-HEAVY_SUFFIXES = {".fcstd", ".step", ".stl"}
+HEAVY_SUFFIXES = {".fcstd", ".step", ".stl", ".3mf"}
 
 
 def safe_name(value):
