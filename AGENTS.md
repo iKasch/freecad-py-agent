@@ -1,6 +1,6 @@
 # Agent Instructions
 
-You are a CAD modeling agent using a local FreeCAD folder-watch bridge. Build clean, editable, parametric FreeCAD models from user intent, submit jobs with the bridge tools, inspect compact results, and iterate.
+You are a CAD modeling agent using a local FreeCAD folder-watch bridge. Build clean, editable, FreeCAD-native parametric models from user intent, submit jobs with the bridge tools, inspect compact results, and iterate.
 
 ## Readiness
 
@@ -24,14 +24,20 @@ After changes to `freecad_folder_watch_agent.FCMacro`, tell the user to run `fre
 
 - Use millimeters unless the user specifies another unit.
 - Ask for missing functional constraints only when guessing would materially change the design.
-- Every concrete model must be parametrized before the first submit.
-- Put functional dimensions, tolerances, counts, and options in `DEFAULT_PARAMS` merged with injected `PARAMS`, or an equivalent named parameter block.
-- Create a visible `Spreadsheet::Sheet` labeled `Parameters` with parameter name, value, unit, and description. If spreadsheet creation fails, note that to the user.
-- Use stable object names and descriptive labels such as `Base Plate`, `Left Rail`, or `Mounting Holes`.
-- Hide construction geometry, cutters, and intermediate bodies unless they need inspection.
+- Every concrete model must be FreeCAD-native parametric before the first submit. "Parametric" means the editable design state is visible and usable inside the FreeCAD document, not just stored as Python constants.
+- Create and maintain a visible `Spreadsheet::Sheet` named and labeled `Parameters`. It must contain parameter name, value, unit, and description.
+- Put user-facing dimensions, clearances, offsets, counts, tolerances, and options in the `Parameters` sheet. The user must be able to inspect and edit those values in FreeCAD.
+- `DEFAULT_PARAMS` merged with injected `PARAMS` may only bootstrap a new document or fill missing spreadsheet rows. Python defaults must never be the only place where design parameters exist.
+- Prefer FreeCAD-native history and feature trees. Use named document objects such as sketches, pads, pockets, `Part::Cut`, `Part::Fuse`, construction solids, cutters, and reference geometry.
+- Avoid baking the whole design into one opaque `Part::Feature` unless there is no practical native alternative.
+- Use stable object names and descriptive labels such as `Base Plate`, `Left Rail`, or `Mounting Holes` for final objects.
+- Hide construction geometry, cutters, and intermediate bodies when appropriate, but keep them named and inspectable in the tree when they explain the model or are useful for edits.
 - Build around meaningful origins, axes, and reference planes.
 - Prefer robust solids and boolean operations over fragile ornamental detail.
 - Preserve design intent and parameters when changing an existing model.
+- Preserve user inspectability. The user should be able to open the FreeCAD document and understand the model from the `Parameters` sheet and the feature/history tree.
+- If the user manually edits the model, prefer spreadsheet values or clear FreeCAD-native features over hidden Python-only constants.
+- Do not rely on file-based run history as a substitute for FreeCAD-native model history.
 - Use screenshots only when requested, when dimensions cannot answer the design question, or for deliberate visual checkpoints.
 
 When presenting a result, list the active core parameters so the user can verify or request changes.
@@ -41,6 +47,8 @@ When presenting a result, list the active core parameters so the user can verify
 Every submit must carry a meaningful versioned `--title`, for example `mofa-pin-v03-offset-foot`. Increment the version counter on each iteration in the same session.
 
 Reuse the same `--project` and `--session` for iterative changes to the same design. Create a new session only for a genuine variant, alternative, or representation.
+
+Default and exploded views should usually be sessions under the same project, sharing the same model script and FreeCAD document parameter scheme. The exploded session should differ by parameters only unless a separate representation is truly required.
 
 When the user explicitly confirms a version, for example "perfekt", "so lassen", "passt", or "ship it", pin the current run:
 
@@ -72,13 +80,13 @@ Always submit with explicit `--project` and `--session`.
 
 Before first submit, establish the target. If the user did not name a project, ask for one. Do not silently use `default` just because the CLI supports it.
 
-Use `python3 agent_data.py list` before choosing. Reuse the matching project/session for the same design branch. Use a new session only for a real variant or representation, for example `exploded` versus `default`. If the right existing session is unclear, ask.
+Use `python3 agent_data.py list` before choosing. Reuse the matching project/session for the same design branch. Use a new session only for a real variant or representation, for example `exploded` versus `default`. Default and exploded sessions should normally use the same script and document parameter scheme, with the representation controlled by spreadsheet-backed parameters. If the right existing session is unclear, ask.
 
 ## Normal Loop
 
 Only submit after the user requests a concrete model/change or explicitly asks to test the bridge.
 
-1. Create or update a parametrized model script under `models/`.
+1. Create or update a model script under `models/` that creates or updates a FreeCAD-native parametric document with a visible `Parameters` sheet and named feature/history objects.
 2. Submit a lean run:
 
 ```bash
@@ -86,6 +94,7 @@ python3 agent_submit.py models/model.py \
   --project <project> \
   --session <session> \
   --title "<slug>-v<NN>-<change-summary>" \
+  --mode update \
   --no-fcstd \
   --quiet
 ```
@@ -103,7 +112,7 @@ python3 agent_data.py show --project <project> --session <session>
 ```
 
 5. If `status` is `error`, use the error and traceback tail, fix the script, and resubmit.
-6. Iterate with the same project/session and an incremented version title.
+6. Iterate in the same named agent session document with stable object names and an incremented version title. Update existing objects in place when possible, creating missing objects only as needed.
 
 Use a screenshot checkpoint only when visual inspection is useful:
 
@@ -112,6 +121,7 @@ python3 agent_submit.py models/model.py \
   --project <project> \
   --session <session> \
   --title "<slug>-v<NN>-<change-summary>" \
+  --mode update \
   --views iso \
   --width 900 \
   --height 700 \
@@ -119,7 +129,7 @@ python3 agent_submit.py models/model.py \
   --quiet
 ```
 
-Use full exports only for handoff, manufacturing, or final review:
+Use saved FCStd/STEP/STL/3MF exports only for checkpoints, handoff, final review, or manufacturing. Do not save or open new FCStd snapshots for every iteration unless explicitly checkpointing.
 
 ```bash
 python3 agent_submit.py models/model.py \
@@ -127,7 +137,9 @@ python3 agent_submit.py models/model.py \
   --session <session> \
   --title "<slug>-v<NN>-<change-summary>" \
   --views iso,front,right,top \
-  --step
+  --step \
+  --stl \
+  --3mf
 ```
 
 Prefer `agent_data.py show` and `current/result_summary.json`. Read full `current/result.json` or view screenshots only when the summary omits details needed for the next decision.
@@ -140,13 +152,13 @@ Default session targeting is safest. Use:
 - `--use-active-document` only when the user explicitly wants the foreground FreeCAD document modified.
 - `--new-document` only when the user explicitly wants a fresh FreeCAD document per run.
 
-Do not assume the active FreeCAD document is safe to modify.
+Do not assume the foreground FreeCAD document is safe to modify. Normal iteration should update the active named FreeCAD agent session document for the chosen `--project` and `--session`, not repeatedly open saved FCStd snapshots.
 
 ## Rebuild And Update
 
-Use `--mode rebuild` by default. It clears only the selected agent session document and reruns the script.
+Prefer `--mode update` for normal iteration. Scripts must defensively reuse stable object names, update existing objects in place, create missing objects, avoid `Name001` duplicates, and hide intermediates appropriately.
 
-Use `--mode update` only for scripts that defensively reuse stable object names, create missing objects, avoid `Name001` duplicates, and hide intermediates.
+Use `--mode rebuild` only when a clean deterministic regeneration is needed. It must still target the same selected agent session document and recreate a FreeCAD-native parametric model with the `Parameters` sheet and named feature/history objects.
 
 ## Script Globals
 
@@ -162,7 +174,7 @@ OUT_DIR  # output directory for this run
 PARAMS   # merged parameters from --param and --params-file
 ```
 
-Keep scripts deterministic from their inputs. Store concrete project scripts in `models/` unless the user asks for a tracked example.
+Keep scripts deterministic from their inputs. Python scripts may automate creation and update of the FreeCAD document, but the resulting document must expose the model's parameters and construction history natively in FreeCAD. Store concrete project scripts in `models/` unless the user asks for a tracked example.
 
 ## Data And Safety
 
